@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulador AGEO — Reserva Paulicéia</title>
+<style>
+:root {
+  --bg: #FAFAF7;
+  --bg-card: #FFFFFF;
+  --bg-elev: #F1EFE8;
+  --border: rgba(0,0,0,0.10);
+  --border-strong: rgba(0,0,0,0.18);
+  --text: #1A1A1A;
+  --text-muted: #5F5E5A;
+  --text-dim: #888780;
+  --accent: #0F6E56;
+  --accent-bg: #E1F5EE;
+  --accent-text: #085041;
+  --warn-bg: #FAEEDA;
+  --warn-text: #633806;
+  --info-bg: #EEEDFE;
+  --info-text: #3C3489;
+  --info-text-mid: #534AB7;
+  --shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1A1A1A;
+    --bg-card: #242422;
+    --bg-elev: #2C2C2A;
+    --border: rgba(255,255,255,0.10);
+    --border-strong: rgba(255,255,255,0.20);
+    --text: #F5F5F2;
+    --text-muted: #B4B2A9;
+    --text-dim: #888780;
+    --accent: #5DCAA5;
+    --accent-bg: #04342C;
+    --accent-text: #9FE1CB;
+    --warn-bg: #412402;
+    --warn-text: #FAC775;
+    --info-bg: #26215C;
+    --info-text: #CECBF6;
+    --info-text-mid: #AFA9EC;
+    --shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px;
+  padding-bottom: 80px;
+}
+header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 16px; gap: 12px;
+}
+.logo {
+  font-size: 13px; font-weight: 500; color: var(--text-muted);
+  letter-spacing: 0.5px; text-transform: uppercase;
+}
+.logo strong { color: var(--text); font-weight: 500; }
+.tabs {
+  display: flex; background: var(--bg-elev); border-radius: 8px; padding: 3px;
+  font-size: 13px;
+}
+.tab {
+  padding: 6px 14px; border-radius: 6px; cursor: pointer; user-select: none;
+  font-weight: 500; color: var(--text-muted); transition: all 0.15s;
+}
+.tab.active {
+  background: var(--bg-card); color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.screen { display: none; }
+.screen.active { display: block; }
+
+/* === SIMULADOR === */
+.kpi-bar {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--bg);
+  padding: 12px 0 16px;
+  margin: 0 -16px 16px; padding-left: 16px; padding-right: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.kpis {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.kpi {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 12px; text-align: center;
+}
+.kpi .label {
+  font-size: 11px; color: var(--text-muted);
+  letter-spacing: 0.3px; text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.kpi .value {
+  font-size: 18px; font-weight: 500; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.kpi.highlight .value { color: var(--accent); font-size: 20px; }
+.kpi .hint { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+
+.caixa-warning {
+  margin-top: 10px;
+  background: var(--warn-bg);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 12px;
+  color: var(--warn-text);
+  line-height: 1.4;
+}
+.caixa-warning.hidden { display: none; }
+.caixa-warning .warn-icon { font-size: 16px; line-height: 1; flex-shrink: 0; }
+.caixa-warning .warn-text { flex: 1; }
+.caixa-warning .warn-text strong { font-weight: 600; }
+
+@media (max-width: 540px) {
+  .kpis { grid-template-columns: repeat(2, 1fr); }
+}
+
+.section {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px; margin-bottom: 12px;
+}
+.section h2 {
+  font-size: 13px; font-weight: 500; color: var(--text-muted);
+  margin: 0 0 14px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+
+.input-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  margin-bottom: 14px;
+  align-items: center;
+}
+.input-row:last-child { margin-bottom: 0; }
+.input-row .field-label {
+  font-size: 13px; color: var(--text);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.input-row .field-label .sub {
+  font-size: 11px; color: var(--text-dim);
+}
+.input-row .field-input {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--bg-elev); border-radius: 8px;
+  padding: 4px 8px;
+}
+.input-row .prefix {
+  font-size: 12px; color: var(--text-muted);
+}
+.input-row input[type="number"] {
+  background: transparent; border: none; outline: none;
+  color: var(--text); font-size: 14px; font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  width: 80px; text-align: right;
+  padding: 4px 0;
+  font-family: inherit;
+}
+.input-row input[type="number"]::-webkit-outer-spin-button,
+.input-row input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none; margin: 0;
+}
+.input-row input[type="number"] { -moz-appearance: textfield; }
+
+/* Slider abaixo do par label/input */
+.slider-row {
+  grid-column: 1 / -1;
+  margin-top: -8px;
+  padding: 0 4px;
+}
+.slider-row input[type="range"] {
+  width: 100%;
+  -webkit-appearance: none; appearance: none;
+  height: 4px; background: var(--border); border-radius: 2px;
+  outline: none;
+}
+.slider-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--accent); cursor: pointer;
+  border: none;
+}
+.slider-row input[type="range"]::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--accent); cursor: pointer;
+  border: none;
+}
+
+/* Toggle pequeno */
+.toggle-wrap {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  background: var(--bg-elev); border-radius: 8px;
+}
+.toggle-wrap label {
+  font-size: 13px; color: var(--text); flex: 1;
+  cursor: pointer; user-select: none;
+}
+.toggle {
+  position: relative; width: 38px; height: 22px;
+  background: var(--border-strong); border-radius: 11px;
+  cursor: pointer; transition: background 0.2s;
+  flex-shrink: 0;
+}
+.toggle.on { background: var(--accent); }
+.toggle::after {
+  content: ''; position: absolute;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: white; top: 2px; left: 2px;
+  transition: left 0.2s;
+}
+.toggle.on::after { left: 18px; }
+
+/* Breakdown */
+.breakdown {
+  background: var(--bg-elev); border-radius: 10px; padding: 12px 14px;
+  font-size: 13px;
+}
+.breakdown-row {
+  display: flex; justify-content: space-between;
+  padding: 6px 0;
+  font-variant-numeric: tabular-nums;
+}
+.breakdown-row.divider {
+  border-top: 1px solid var(--border);
+  margin-top: 4px; padding-top: 10px; font-weight: 500;
+}
+.breakdown-row.final {
+  background: var(--accent-bg); margin: 8px -14px -12px; padding: 12px 14px;
+  border-radius: 0 0 10px 10px;
+  color: var(--accent-text); font-weight: 500;
+}
+.breakdown-row .neg { color: #A32D2D; }
+@media (prefers-color-scheme: dark) {
+  .breakdown-row .neg { color: #F09595; }
+}
+
+.timeline {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+}
+.timeline-step {
+  background: var(--info-bg); border-radius: 8px; padding: 10px;
+  font-size: 11px;
+}
+.timeline-step.last { background: var(--accent-bg); }
+.timeline-step .num {
+  font-size: 10px; color: var(--info-text-mid);
+  text-transform: uppercase; letter-spacing: 0.3px;
+  font-weight: 500;
+}
+.timeline-step.last .num { color: var(--accent); }
+.timeline-step .title {
+  font-size: 12px; font-weight: 500;
+  color: var(--info-text); margin: 4px 0 2px;
+}
+.timeline-step.last .title { color: var(--accent-text); }
+.timeline-step .desc {
+  color: var(--info-text-mid); font-size: 11px; line-height: 1.4;
+}
+.timeline-step.last .desc { color: var(--accent); }
+
+.url-share {
+  display: flex; gap: 6px; align-items: center;
+  font-size: 12px; color: var(--text-muted);
+  margin-top: 12px;
+}
+.btn {
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 12px;
+  font-size: 12px; cursor: pointer; color: var(--text);
+  font-family: inherit;
+}
+.btn:hover { border-color: var(--border-strong); }
+.btn.primary { background: var(--accent); color: white; border-color: var(--accent); }
+
+/* === ONE-PAGER === */
+.op-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 24px;
+}
+.op-header {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 14px; margin-bottom: 18px;
+}
+.op-header .small {
+  font-size: 11px; color: var(--text-muted);
+  letter-spacing: 0.5px; text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.op-header h1 {
+  font-size: 20px; font-weight: 500; margin: 0 0 4px;
+}
+.op-header .subtitle {
+  font-size: 13px; color: var(--text-muted);
+}
+
+.op-hero {
+  background: var(--bg-elev); border-radius: 10px;
+  padding: 18px; margin-bottom: 18px;
+}
+.op-hero-grid {
+  display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px;
+  align-items: center;
+}
+.op-hero .col { text-align: center; }
+.op-hero .lbl { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+.op-hero .big { font-size: 28px; font-weight: 500; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.op-hero .big.green { color: var(--accent); }
+.op-hero .when { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.op-hero .arrow { font-size: 22px; color: var(--text-dim); }
+.op-hero-stats {
+  border-top: 1px solid var(--border); padding-top: 12px; margin-top: 14px;
+  display: flex; justify-content: space-around; gap: 8px;
+}
+.op-hero-stats .stat { text-align: center; }
+.op-hero-stats .stat .lbl { font-size: 11px; color: var(--text-muted); }
+.op-hero-stats .stat .val { font-size: 16px; font-weight: 500; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.op-hero-stats .stat .val.dim { color: var(--text-muted); }
+
+.op-block { margin-bottom: 18px; }
+.op-block .title {
+  font-size: 13px; font-weight: 500; margin: 0 0 8px;
+}
+.op-block p { font-size: 13px; line-height: 1.6; color: var(--text-muted); margin: 0; }
+.op-block p strong { color: var(--text); font-weight: 500; }
+
+.op-cobertura {
+  display: grid; gap: 6px; margin-bottom: 8px;
+}
+.op-cobertura.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.op-cobertura.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.op-cobertura .item {
+  background: var(--bg-elev); border-radius: 8px; padding: 10px;
+}
+.op-cobertura .item .l { font-size: 11px; color: var(--text-muted); }
+.op-cobertura .item .v { font-size: 14px; font-weight: 500; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.op-cobertura-total {
+  font-size: 12px; color: var(--text-muted); text-align: right; margin-top: 4px;
+}
+.op-cobertura-total strong { color: var(--text); font-weight: 500; }
+
+.op-juridico {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+.op-juridico .item {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+}
+.op-juridico .l { font-size: 11px; color: var(--text-muted); }
+.op-juridico .v { font-size: 13px; margin-top: 2px; line-height: 1.4; }
+
+.op-riscos {
+  background: var(--warn-bg); border-radius: 10px; padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.op-riscos .title {
+  font-size: 12px; font-weight: 500; color: var(--warn-text); margin: 0 0 4px;
+}
+.op-riscos p {
+  font-size: 12px; color: var(--warn-text); margin: 0; line-height: 1.5;
+  opacity: 0.85;
+}
+
+.op-footer {
+  border-top: 1px solid var(--border); padding-top: 12px;
+  display: flex; justify-content: space-between;
+  font-size: 11px; color: var(--text-dim);
+}
+
+@media (max-width: 540px) {
+  .op-cobertura.cols-3 { grid-template-columns: repeat(2, 1fr); }
+  .op-juridico { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+<header>
+  <div class="logo">AGEO · <strong>Reserva Paulicéia</strong></div>
+  <div class="tabs">
+    <div class="tab active" data-screen="simulador">Simulador</div>
+    <div class="tab" data-screen="onepager">One-pager</div>
+  </div>
+</header>
+
+<!-- ============ SIMULADOR ============ -->
+<div class="screen active" id="screen-simulador">
+
+<div class="kpi-bar">
+  <div class="kpis">
+    <div class="kpi">
+      <div class="label">Ticket</div>
+      <div class="value" id="k-ticket">R$ 0</div>
+      <div class="hint">por cotista</div>
+    </div>
+    <div class="kpi highlight">
+      <div class="label">Retorno</div>
+      <div class="value" id="k-retorno">R$ 0</div>
+      <div class="hint">líquido / cotista</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Múltiplo</div>
+      <div class="value" id="k-mult">0,00×</div>
+      <div class="hint">capital × N</div>
+    </div>
+    <div class="kpi">
+      <div class="label">TIR a.a.</div>
+      <div class="value" id="k-tir">0%</div>
+      <div class="hint" id="k-tir-hint">em 0 meses</div>
+    </div>
+  </div>
+  <div id="caixa-warning" class="caixa-warning hidden">
+    <div class="warn-icon">⚠</div>
+    <div class="warn-text">
+      <strong>Atenção — gap de caixa:</strong>
+      <span id="warn-detail">—</span>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Terreno e custos de aquisição</h2>
+
+  <div class="input-row">
+    <div class="field-label">
+      Valor do terreno
+      <span class="sub">acordado com o vendedor</span>
+    </div>
+    <div class="field-input">
+      <span class="prefix">R$</span>
+      <input type="number" id="i-terreno" min="0" max="2000000" step="1000">
+    </div>
+    <div class="slider-row"><input type="range" id="s-terreno" min="50000" max="500000" step="5000"></div>
+  </div>
+
+  <div class="toggle-wrap">
+    <label for="t-iptu">Pool absorve dívida de IPTU</label>
+    <div class="toggle" id="t-iptu" role="switch" tabindex="0"></div>
+  </div>
+
+  <div class="input-row" id="row-iptu">
+    <div class="field-label">
+      Valor do IPTU em aberto
+      <span class="sub">passivo propter rem</span>
+    </div>
+    <div class="field-input">
+      <span class="prefix">R$</span>
+      <input type="number" id="i-iptu" min="0" max="500000" step="1000">
+    </div>
+    <div class="slider-row"><input type="range" id="s-iptu" min="0" max="200000" step="1000"></div>
+  </div>
+
+  <div class="input-row">
+    <div class="field-label">
+      ITBI + registro + emolumentos
+      <span class="sub">custos cartoriais</span>
+    </div>
+    <div class="field-input">
+      <span class="prefix">R$</span>
+      <input type="number" id="i-cartorio" min="0" max="100000" step="100">
+    </div>
+    <div class="slider-row"><input type="range" id="s-cartorio" min="0" max="50000" step="500"></div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Pool e contrapartida</h2>
+
+  <div class="input-row">
+    <div class="field-label">
+      Número de cotistas F&amp;F
+      <span class="sub">tamanho da rodada</span>
+    </div>
+    <div class="field-input">
+      <input type="number" id="i-cotistas" min="1" max="50" step="1">
+    </div>
+    <div class="slider-row"><input type="range" id="s-cotistas" min="5" max="20" step="1"></div>
+  </div>
+
+  <div class="input-row">
+    <div class="field-label">
+      Unidades destinadas ao pool
+      <span class="sub">contrapartida da SCP</span>
+    </div>
+    <div class="field-input">
+      <input type="number" id="i-unidades" min="1" max="10" step="1">
+    </div>
+    <div class="slider-row"><input type="range" id="s-unidades" min="1" max="5" step="1"></div>
+  </div>
+
+  <div class="input-row">
+    <div class="field-label">
+      Preço de venda por unidade
+      <span class="sub">valor de mercado projetado</span>
+    </div>
+    <div class="field-input">
+      <span class="prefix">R$</span>
+      <input type="number" id="i-preco" min="100000" max="2000000" step="5000">
+    </div>
+    <div class="slider-row"><input type="range" id="s-preco" min="200000" max="500000" step="5000"></div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Cronograma (meses)</h2>
+
+  <div class="input-row">
+    <div class="field-label">
+      Pré-obra
+      <span class="sub">aquisição → início canteiro</span>
+    </div>
+    <div class="field-input">
+      <input type="number" id="i-preobra" min="1" max="12" step="1">
+    </div>
+    <div class="slider-row"><input type="range" id="s-preobra" min="1" max="12" step="1"></div>
+  </div>
+
+  <div class="input-row">
+    <div class="field-label">
+      Obra
+      <span class="sub">canteiro → habite-se</span>
+    </div>
+    <div class="field-input">
+      <input type="number" id="i-obra" min="12" max="48" step="1">
+    </div>
+    <div class="slider-row"><input type="range" id="s-obra" min="12" max="36" step="1"></div>
+  </div>
+
+  <div class="input-row">
+    <div class="field-label">
+      Liquidação
+      <span class="sub">venda das unidades F&amp;F pós-habite-se</span>
+    </div>
+    <div class="field-input">
+      <input type="number" id="i-liquid" min="1" max="18" step="1">
+    </div>
+    <div class="slider-row"><input type="range" id="s-liquid" min="1" max="12" step="1"></div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Tributos e custos de venda</h2>
+
+  <div class="input-row">
+    <div class="field-label">
+      Comissão de corretagem
+      <span class="sub">sobre receita bruta de venda</span>
+    </div>
+    <div class="field-input">
+      <input type="number" id="i-corr" min="0" max="10" step="0.5">
+      <span class="prefix">%</span>
+    </div>
+    <div class="slider-row"><input type="range" id="s-corr" min="0" max="10" step="0.5"></div>
+  </div>
+
+  <div class="input-row">
+    <div class="field-label">
+      RET (Patrimônio de Afetação)
+      <span class="sub">unificado sobre receita</span>
+    </div>
+    <div class="field-input">
+      <input type="number" id="i-ret" min="0" max="10" step="0.1">
+      <span class="prefix">%</span>
+    </div>
+    <div class="slider-row"><input type="range" id="s-ret" min="0" max="10" step="0.1"></div>
+  </div>
+
+  <div class="input-row">
+    <div class="field-label">
+      IR PF sobre ganho de capital
+      <span class="sub">0% (default) = isento como dividendo · 15% = cenário pessimista</span>
+    </div>
+    <div class="field-input">
+      <input type="number" id="i-irpf" min="0" max="30" step="0.5">
+      <span class="prefix">%</span>
+    </div>
+    <div class="slider-row"><input type="range" id="s-irpf" min="0" max="22.5" step="2.5"></div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Como o número fecha</h2>
+  <div class="breakdown" id="breakdown"></div>
+</div>
+
+<div class="section">
+  <h2>Cronograma do projeto</h2>
+  <div class="timeline" id="timeline"></div>
+</div>
+
+<div class="url-share">
+  <button class="btn" id="btn-copy">Copiar link com esta simulação</button>
+  <button class="btn" id="btn-reset">Restaurar defaults</button>
+</div>
+
+</div>
+
+<!-- ============ ONE-PAGER ============ -->
+<div class="screen" id="screen-onepager">
+<div class="op-card">
+
+<div class="op-header">
+  <div class="small">RESIDENCIAL RESERVA PAULICÉIA · CAMPINAS/SP</div>
+  <h1>Convite — Cota Terreno</h1>
+  <div class="subtitle" id="op-subtitle">—</div>
+</div>
+
+<div class="op-hero">
+  <div class="op-hero-grid">
+    <div class="col">
+      <div class="lbl">Você aporta</div>
+      <div class="big" id="op-aporte">R$ 0</div>
+      <div class="when">uma única vez</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="col">
+      <div class="lbl">Você recebe</div>
+      <div class="big green" id="op-retorno">R$ 0</div>
+      <div class="when" id="op-prazo">em 0 meses</div>
+    </div>
+  </div>
+  <div class="op-hero-stats">
+    <div class="stat"><div class="lbl">Multiplica</div><div class="val" id="op-mult">0,00×</div></div>
+    <div class="stat"><div class="lbl">Equivalente a</div><div class="val" id="op-tir">0% a.a.</div></div>
+    <div class="stat"><div class="lbl">CDI no período</div><div class="val dim">~14,4% a.a.</div></div>
+  </div>
+</div>
+
+<div class="op-block">
+  <div class="title">O que o seu aporte cobre</div>
+  <div class="op-cobertura" id="op-cobertura"></div>
+  <div class="op-cobertura-total" id="op-cobertura-total"></div>
+</div>
+
+<div class="op-block">
+  <div class="title" id="op-tese-title">Por que esse retorno é possível</div>
+  <p id="op-tese">—</p>
+</div>
+
+<div class="op-block">
+  <div class="title">Cronograma</div>
+  <div class="timeline" id="op-timeline"></div>
+</div>
+
+<div class="op-block">
+  <div class="title">Como o dinheiro volta</div>
+  <p id="op-volta">—</p>
+</div>
+
+<div class="op-block">
+  <div class="title">Estrutura jurídica e tributária</div>
+  <div class="op-juridico">
+    <div class="item"><div class="l">Veículo</div><div class="v">SCP — Sociedade em Conta de Participação (arts. 991-996 CC)</div></div>
+    <div class="item"><div class="l">Proteção</div><div class="v">Patrimônio de Afetação (Lei 10.931/04) — obra blindada</div></div>
+    <div class="item"><div class="l">Tributação SPE</div><div class="v">RET — alíquota unificada de 4% sobre receita</div></div>
+    <div class="item"><div class="l">Tributação cotista</div><div class="v">Distribuição tratada como dividendo — base na Lei 9.249/95 (requer parecer tributário formal)</div></div>
+  </div>
+</div>
+
+<div class="op-riscos">
+  <div class="title">Riscos a considerar</div>
+  <p>Atraso na obra alonga o prazo (e reduz o retorno anualizado). Variação no preço de venda das 2 unidades altera o valor distribuído. Investimento ilíquido — não há saída antecipada antes da entrega.</p>
+</div>
+
+<div class="op-footer">
+  <span>Material informativo · não constitui oferta pública</span>
+  <span>AGEO Incorporadora · 2026</span>
+</div>
+
+</div>
+</div>
+
+</div>
+
+<script>
+// ============ DEFAULTS — Versão 2 (sem IPTU, 10 cotistas) ============
+const DEFAULTS = {
+  terreno: 170000,
+  iptu_on: false,
+  iptu: 75000,
+  cartorio: 11600,
+  cotistas: 10,
+  unidades: 2,
+  preco: 305000,
+  preobra: 3,
+  obra: 24,
+  liquid: 2,
+  corr: 5,
+  ret: 4,
+  irpf: 0
+};
+
+// ============ State ============
+const state = { ...DEFAULTS };
+
+// ============ Formatters ============
+const fmtBRL = n => 'R$ ' + Math.round(n).toLocaleString('pt-BR');
+const fmtBRL_K = n => {
+  if (n >= 1000) return 'R$ ' + (Math.round(n / 100) / 10).toLocaleString('pt-BR') + 'k';
+  return 'R$ ' + Math.round(n).toLocaleString('pt-BR');
+};
+const fmtPct = n => (n * 100).toFixed(1).replace('.', ',') + '%';
+const fmtMult = n => n.toFixed(2).replace('.', ',') + '×';
+
+// ============ Cálculo principal ============
+function calcular() {
+  const iptu_efetivo = state.iptu_on ? state.iptu : 0;
+  const aquisicao = state.terreno + iptu_efetivo + state.cartorio;
+  const ticket = aquisicao / state.cotistas;
+
+  const captacao_meses = 1; // sempre 1 mês
+  const prazo_total = captacao_meses + state.preobra + state.obra + state.liquid;
+
+  // Receita bruta
+  const receita_bruta = state.unidades * state.preco;
+  const bruto_por_cotista = receita_bruta / state.cotistas;
+
+  // Deduções na SPE
+  const corretagem = receita_bruta * (state.corr / 100);
+  const ret_val = receita_bruta * (state.ret / 100);
+  const liquido_spe = receita_bruta - corretagem - ret_val;
+  const liquido_por_cotista = liquido_spe / state.cotistas;
+
+  // IR PF sobre ganho de capital (0% = dividendo isento; 15% = cenário pessimista)
+  const ganho_capital = Math.max(0, liquido_por_cotista - ticket);
+  const ir_pf_val = ganho_capital * (state.irpf / 100);
+  const liquido_final = liquido_por_cotista - ir_pf_val;
+
+  // Múltiplo e TIR
+  const multiplo = liquido_final / ticket;
+  const tir_mensal = Math.pow(multiplo, 1 / prazo_total) - 1;
+  const tir_anual = Math.pow(1 + tir_mensal, 12) - 1;
+
+  return {
+    aquisicao, ticket, prazo_total, captacao_meses,
+    receita_bruta, bruto_por_cotista,
+    corretagem, ret_val,
+    liquido_spe, liquido_por_cotista, liquido_final,
+    ganho_capital, ir_pf_val,
+    multiplo, tir_anual,
+    iptu_efetivo
+  };
+}
+
+// ============ Renderizar KPIs e breakdown ============
+function render() {
+  try {
+  const r = calcular();
+
+  // KPIs do simulador
+  document.getElementById('k-ticket').textContent = fmtBRL(r.ticket);
+  document.getElementById('k-retorno').textContent = fmtBRL(r.liquido_final);
+  document.getElementById('k-mult').textContent = fmtMult(r.multiplo);
+  document.getElementById('k-tir').textContent = fmtPct(r.tir_anual);
+  document.getElementById('k-tir-hint').textContent = 'em ' + r.prazo_total + ' meses';
+
+  // Aviso de gap de caixa (Melhoria 4)
+  // O F&F deve cobrir integralmente a aquisição (terreno + IPTU se ativo + cartório)
+  // Se o aporte total F&F é menor que a aquisição, há gap.
+  const gap_caixa = r.aquisicao - (r.ticket * state.cotistas);
+  const warn_div = document.getElementById('caixa-warning');
+  const warn_detail = document.getElementById('warn-detail');
+  // Como ticket = aquisicao/cotistas, o gap padrão é zero.
+  // Mas se a soma do pool não cobre a aquisição (ex: usuário muda manualmente),
+  // mostrar aviso. Aqui também aviso quando o aporte total da operação não fechar.
+  // Caso simples e útil: se o RET + corretagem deixarem o cotista no NEGATIVO (ticket > líquido).
+  if (r.liquido_final < r.ticket) {
+    warn_div.classList.remove('hidden');
+    warn_detail.textContent = 'O retorno líquido por cotista (' + fmtBRL(r.liquido_final) + ') está abaixo do aporte (' + fmtBRL(r.ticket) + '). Revise o preço de venda, número de unidades ao pool ou número de cotistas.';
+  } else if (r.multiplo < 1.8) {
+    warn_div.classList.remove('hidden');
+    warn_detail.textContent = 'Múltiplo abaixo de 1,8×. Prêmio de risco apertado para captação F&F (recomendado ≥ 2×).';
+  } else {
+    warn_div.classList.add('hidden');
+  }
+
+  // Breakdown
+  const bd = document.getElementById('breakdown');
+  bd.innerHTML = `
+    <div class="breakdown-row"><span>Receita bruta da venda (${state.unidades} unid. × ${fmtBRL(state.preco)})</span><span>${fmtBRL(r.receita_bruta)}</span></div>
+    <div class="breakdown-row"><span>(−) Comissão de corretagem (${state.corr}%)</span><span class="neg">−${fmtBRL(r.corretagem)}</span></div>
+    <div class="breakdown-row"><span>(−) RET (${state.ret}%)</span><span class="neg">−${fmtBRL(r.ret_val)}</span></div>
+    <div class="breakdown-row divider"><span>Líquido distribuído ao pool</span><span>${fmtBRL(r.liquido_spe)}</span></div>
+    <div class="breakdown-row"><span>÷ ${state.cotistas} cotistas</span><span></span></div>
+    <div class="breakdown-row"><span>Líquido por cotista (antes IR PF)</span><span>${fmtBRL(r.liquido_por_cotista)}</span></div>
+    <div class="breakdown-row"><span>(−) IR PF sobre ganho de capital (${state.irpf}%)</span><span class="${r.ir_pf_val > 0 ? 'neg' : ''}">${r.ir_pf_val > 0 ? '−' : ''}${fmtBRL(r.ir_pf_val)}</span></div>
+    <div class="breakdown-row final"><span>💰 Líquido final no bolso</span><span>${fmtBRL(r.liquido_final)}</span></div>
+  `;
+
+  // Timeline (compartilhado entre simulador e one-pager)
+  renderTimeline(r);
+
+  // One-pager
+  renderOnePager(r);
+
+  // Atualizar URL
+  updateURL();
+  } catch (e) {
+    console.error('Erro em render():', e);
+    if (window.showDebug) window.showDebug('render', e.message);
+    throw e;
+  }
+}
+
+function renderTimeline(r) {
+  const captM = '0';
+  const preM = '1-' + (state.preobra);
+  const obraStart = 1 + state.preobra;
+  const obraEnd = obraStart + state.obra - 1;
+  const obraM = obraStart + '-' + obraEnd;
+  const liqStart = obraEnd + 1;
+  const liqEnd = liqStart + state.liquid - 1;
+  const liqM = liqStart + '-' + liqEnd;
+
+  const html = `
+    <div class="timeline-step">
+      <div class="num">MÊS ${captM}</div>
+      <div class="title">${state.cotistas} cotistas aportam</div>
+      <div class="desc">~${fmtBRL_K(r.ticket)} cada</div>
+    </div>
+    <div class="timeline-step">
+      <div class="num">MÊS ${preM}</div>
+      <div class="title">Compra do terreno</div>
+      <div class="desc">aprovações e projetos</div>
+    </div>
+    <div class="timeline-step">
+      <div class="num">MÊS ${obraM}</div>
+      <div class="title">Construção</div>
+      <div class="desc">${state.obra} meses até habite-se</div>
+    </div>
+    <div class="timeline-step last">
+      <div class="num">MÊS ${liqM}</div>
+      <div class="title">Venda e distribuição</div>
+      <div class="desc">${state.unidades} unidades pagam o pool</div>
+    </div>
+  `;
+  document.getElementById('timeline').innerHTML = html;
+  document.getElementById('op-timeline').innerHTML = html;
+}
+
+function renderOnePager(r) {
+  // Subtítulo dinâmico
+  const sub = state.iptu_on
+    ? `Pool cobre aquisição integral · ${state.cotistas} cotistas`
+    : `Pool cobre terreno + ITBI · ${state.cotistas} cotistas`;
+  document.getElementById('op-subtitle').textContent = sub;
+
+  // Hero
+  document.getElementById('op-aporte').textContent = fmtBRL(r.ticket);
+  document.getElementById('op-retorno').textContent = fmtBRL(r.liquido_final);
+  document.getElementById('op-prazo').textContent = `em ${r.prazo_total} meses`;
+  document.getElementById('op-mult').textContent = fmtMult(r.multiplo);
+  document.getElementById('op-tir').textContent = '~' + Math.round(r.tir_anual * 100) + '% a.a.';
+
+  // Cobertura
+  const cob = document.getElementById('op-cobertura');
+  const items = [
+    { l: 'Terreno', v: fmtBRL_K(state.terreno) }
+  ];
+  if (state.iptu_on && state.iptu > 0) {
+    items.push({ l: 'IPTU em aberto', v: fmtBRL_K(state.iptu) });
+  }
+  items.push({ l: 'ITBI + registro', v: fmtBRL_K(state.cartorio) });
+
+  cob.className = 'op-cobertura cols-' + items.length;
+  cob.innerHTML = items.map(i => `
+    <div class="item"><div class="l">${i.l}</div><div class="v">${i.v}</div></div>
+  `).join('');
+
+  document.getElementById('op-cobertura-total').innerHTML =
+    `Total captado pelo pool: <strong>${fmtBRL(r.aquisicao)}</strong> · ${state.cotistas} cotistas × ${fmtBRL(r.ticket)}`;
+
+  // Tese
+  const tese = state.iptu_on
+    ? `O terreno está parado por uma dívida de IPTU de ${fmtBRL_K(state.iptu)} — passivo que trava qualquer comprador comum. A SPE compra o terreno absorvendo essa dívida, destravando um ativo que custaria mais caro sem o passivo. Esse desconto embutido é o que financia o seu retorno.`
+    : `O terreno está abaixo do valor de mercado por causa de uma dívida de IPTU que trava a venda para qualquer comprador comum. Essa dívida é equacionada pela AGEO no fechamento, e você participa apenas da aquisição limpa. Como são <strong>apenas ${state.cotistas} cotistas</strong> dividindo as ${state.unidades} unidades destinadas ao pool, o múltiplo individual é maior.`;
+  document.getElementById('op-tese').innerHTML = tese;
+
+  // Como o dinheiro volta
+  const volta = `Das 20 unidades do prédio, <strong>${state.unidades} são destinadas ao pool</strong> de cotistas terreno. Após o habite-se, a AGEO comercializa essas ${state.unidades} unidades. O produto líquido — descontados corretagem (${state.corr}%) e RET (${state.ret}%) — é distribuído proporcionalmente entre os ${state.cotistas} cotistas. Distribuição em dinheiro, não em imóvel.`;
+  document.getElementById('op-volta').innerHTML = volta;
+}
+
+// ============ Vincular inputs ============
+function bindInput(numId, sliderId, key, isFloat = false) {
+  const num = document.getElementById(numId);
+  const slider = document.getElementById(sliderId);
+
+  num.value = state[key];
+  slider.value = state[key];
+
+  num.addEventListener('input', () => {
+    const v = isFloat ? parseFloat(num.value) || 0 : parseInt(num.value) || 0;
+    state[key] = v;
+    slider.value = v;
+    render();
+  });
+  slider.addEventListener('input', () => {
+    const v = isFloat ? parseFloat(slider.value) : parseInt(slider.value);
+    state[key] = v;
+    num.value = v;
+    render();
+  });
+}
+
+bindInput('i-terreno', 's-terreno', 'terreno');
+bindInput('i-iptu', 's-iptu', 'iptu');
+bindInput('i-cartorio', 's-cartorio', 'cartorio');
+bindInput('i-cotistas', 's-cotistas', 'cotistas');
+bindInput('i-unidades', 's-unidades', 'unidades');
+bindInput('i-preco', 's-preco', 'preco');
+bindInput('i-preobra', 's-preobra', 'preobra');
+bindInput('i-obra', 's-obra', 'obra');
+bindInput('i-liquid', 's-liquid', 'liquid');
+bindInput('i-corr', 's-corr', 'corr', true);
+bindInput('i-ret', 's-ret', 'ret', true);
+bindInput('i-irpf', 's-irpf', 'irpf', true);
+
+// Toggle IPTU
+const togIptu = document.getElementById('t-iptu');
+function setIptuToggle() {
+  togIptu.classList.toggle('on', state.iptu_on);
+  document.getElementById('row-iptu').style.opacity = state.iptu_on ? '1' : '0.4';
+  document.getElementById('row-iptu').style.pointerEvents = state.iptu_on ? 'auto' : 'none';
+}
+togIptu.addEventListener('click', () => {
+  state.iptu_on = !state.iptu_on;
+  setIptuToggle();
+  render();
+});
+togIptu.addEventListener('keydown', e => {
+  if (e.key === ' ' || e.key === 'Enter') {
+    e.preventDefault();
+    state.iptu_on = !state.iptu_on;
+    setIptuToggle();
+    render();
+  }
+});
+
+// ============ Tabs ============
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    const target = t.dataset.screen;
+    document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === t));
+    document.querySelectorAll('.screen').forEach(s => {
+      s.classList.toggle('active', s.id === 'screen-' + target);
+    });
+    window.scrollTo(0, 0);
+  });
+});
+
+// ============ URL state (hash) ============
+function updateURL() {
+  // Em file:// no Safari iOS, history.replaceState pode lançar SecurityError.
+  // Tentamos alterar via location.hash (mais permissivo). Falha silenciosa em último caso.
+  try {
+    const params = new URLSearchParams();
+    Object.keys(state).forEach(k => {
+      if (state[k] !== DEFAULTS[k]) {
+        params.set(k, state[k] === true ? '1' : (state[k] === false ? '0' : state[k]));
+      }
+    });
+    const newHash = params.toString();
+    // Tenta history.replaceState, fallback para location.hash, fallback silencioso
+    try {
+      if (newHash) {
+        history.replaceState(null, '', '#' + newHash);
+      } else if (window.location.hash) {
+        history.replaceState(null, '', window.location.pathname);
+      }
+    } catch (e1) {
+      // Safari iOS via file:// — tentar location.hash diretamente
+      try {
+        if (newHash && window.location.hash !== '#' + newHash) {
+          window.location.hash = newHash;
+        }
+      } catch (e2) {
+        // Não há nada que possamos fazer; ignorar.
+      }
+    }
+  } catch (e) {
+    // Falha total — não impacta a operação do simulador
+  }
+}
+
+function loadFromURL() {
+  try {
+    const hash = window.location.hash ? window.location.hash.slice(1) : '';
+    if (!hash) return;
+    const params = new URLSearchParams(hash);
+    params.forEach((v, k) => {
+      if (k in state) {
+        if (k === 'iptu_on') {
+          state[k] = v === '1';
+        } else if (typeof DEFAULTS[k] === 'number') {
+          state[k] = parseFloat(v);
+        }
+      }
+    });
+    Object.keys(state).forEach(k => {
+      const num = document.getElementById('i-' + k.replace('_on', ''));
+      const slider = document.getElementById('s-' + k.replace('_on', ''));
+      if (num) num.value = state[k];
+      if (slider) slider.value = state[k];
+    });
+  } catch (e) {
+    // Hash mal formado ou API não disponível — usar defaults
+  }
+}
+
+// Botão copiar link
+document.getElementById('btn-copy').addEventListener('click', async () => {
+  const url = window.location.href;
+  const btn = document.getElementById('btn-copy');
+  const orig = btn.textContent;
+  let copiado = false;
+  // Tentar Clipboard API (não disponível em file:// no Safari iOS)
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(url);
+      copiado = true;
+    }
+  } catch (e) {
+    copiado = false;
+  }
+  // Fallback: usar execCommand com textarea temporário
+  if (!copiado) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      copiado = document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) {
+      copiado = false;
+    }
+  }
+  // Último fallback: prompt
+  if (copiado) {
+    btn.textContent = '✓ Link copiado';
+    setTimeout(() => btn.textContent = orig, 2000);
+  } else {
+    try {
+      prompt('Copie este link:', url);
+    } catch (e) {
+      btn.textContent = '⚠ Não foi possível copiar';
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+  }
+});
+
+// Botão reset
+document.getElementById('btn-reset').addEventListener('click', () => {
+  Object.keys(DEFAULTS).forEach(k => state[k] = DEFAULTS[k]);
+  Object.keys(state).forEach(k => {
+    const baseKey = k.replace('_on', '');
+    const num = document.getElementById('i-' + baseKey);
+    const slider = document.getElementById('s-' + baseKey);
+    if (num && typeof state[k] === 'number') num.value = state[k];
+    if (slider && typeof state[k] === 'number') slider.value = state[k];
+  });
+  setIptuToggle();
+  render();
+  try {
+    if (window.location.hash) {
+      try {
+        history.replaceState(null, '', window.location.pathname);
+      } catch (e) {
+        window.location.hash = '';
+      }
+    }
+  } catch (e) {
+    // Ignorar
+  }
+});
+
+// ============ Init com proteção e telemetria ============
+window._initStep = 'pre-init';
+try {
+  window._initStep = 'loadFromURL';
+  loadFromURL();
+  window._initStep = 'setIptuToggle';
+  setIptuToggle();
+  window._initStep = 'render';
+  render();
+  window._initStep = 'completo';
+} catch (e) {
+  // Mostrar de qual etapa veio o erro
+  var box = document.getElementById('debug-box');
+  var msgDiv = document.getElementById('debug-msg');
+  if (box && msgDiv) {
+    box.style.display = 'block';
+    msgDiv.innerHTML = '<b>Erro na etapa:</b> ' + window._initStep + 
+      '<br><b>Mensagem:</b> ' + (e.message || String(e)) +
+      (e.stack ? '<br><pre style="white-space:pre-wrap;font-size:11px;margin:4px 0">' + e.stack + '</pre>' : '');
+  }
+  console.error('Erro init [' + window._initStep + ']:', e);
+}
+</script>
+
+<div id="debug-box" style="position:fixed;bottom:0;left:0;right:0;background:#fee;border-top:2px solid #c00;padding:10px;font:12px monospace;z-index:9999;display:none;color:#900;max-height:200px;overflow:auto;">
+  <strong>Erro detectado:</strong>
+  <div id="debug-msg"></div>
+  <button onclick="document.getElementById('debug-box').style.display='none'" style="position:absolute;top:5px;right:5px;background:#c00;color:white;border:none;padding:2px 8px;cursor:pointer;border-radius:3px;font-size:11px;">×</button>
+</div>
+<script>
+(function() {
+  function showError(label, msg, src, line, col, err) {
+    var box = document.getElementById('debug-box');
+    var msgDiv = document.getElementById('debug-msg');
+    if (!box || !msgDiv) return;
+    box.style.display = 'block';
+    msgDiv.innerHTML = '<b>' + label + '</b>: ' + msg + 
+      (src ? '<br>Arquivo: ' + src : '') +
+      (line ? '<br>Linha ' + line + ' col ' + col : '') +
+      (err && err.stack ? '<br>Stack:<pre style="white-space:pre-wrap;font-size:11px;margin:4px 0">' + err.stack + '</pre>' : '');
+  }
+  window.addEventListener('error', function(e) {
+    showError('Erro', e.message, e.filename, e.lineno, e.colno, e.error);
+    return false;
+  });
+  window.addEventListener('unhandledrejection', function(e) {
+    showError('Promise rejeitada', e.reason && e.reason.message ? e.reason.message : String(e.reason));
+  });
+})();
+</script>
+
+</body>
+</html>
