@@ -43,6 +43,7 @@ from leitor import alteracoes as ALT           # noqa: E402
 from leitor import hidraulica as HID           # noqa: E402
 from leitor import saida_hidraulica as SHID    # noqa: E402
 from leitor import orcamento_hid as OHID       # noqa: E402
+from leitor import esgoto as ESG               # noqa: E402
 from dataclasses import replace as dc_replace  # noqa: E402
 from shapely.geometry import Polygon as _Poly   # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
@@ -548,11 +549,12 @@ def planilha(dados: dict, destino: Path):
     if dados.get("orcamento"):
         SORC.abas(wb, dados, _cabecalho)
     SHID.abas(wb, dados, _cabecalho)
+    SHID.abas_esgoto(wb, dados, _cabecalho)
     SHID.aba_orcamento(wb, dados, _cabecalho)
     CONF.aba(wb, CONF.checar(dados), _cabecalho)
     ordem_abas = ["Leia-me", "Conferência", "Resumo", "Orçamento (B4)", "Insumos (B3)", "Preços (B4)", "Custo por pavimento (B4)", "Resumo quantitativos", "Resumo paredes", "Paginação", "Quantitativos", "Paredes",
-                  "Paginação por parede", "Ambientes", "Esquadrias", "Água fria", "Instalações (B4)", "Água fria por coluna", "Água fria trechos",
-                  "Água fria leitura", "Premissas", "Calibração"]
+                  "Paginação por parede", "Ambientes", "Esquadrias", "Instalações (B4)", "Água fria", "Esgoto", "Água fria por coluna",
+                  "Água fria trechos", "Esgoto trechos", "Água fria leitura", "Esgoto leitura", "Premissas", "Calibração"]
     ordem_abas = [n for n in ordem_abas if n in wb.sheetnames]
     wb._sheets = [wb[n] for n in ordem_abas]
     wb.save(destino)
@@ -711,6 +713,7 @@ def main():
     ap.add_argument("--desonerado", action="store_true", default=None, help="usar preços com desoneração")
     ap.add_argument("--sem-preco", action="store_true", help="não gerar o orçamento (B4)")
     ap.add_argument("--agua-fria", type=Path, help="PDF do projeto de água fria (isométricos de prumada e plantas)")
+    ap.add_argument("--esgoto", type=Path, help="PDF do projeto de esgoto sanitário (isométricos e plantas)")
     a = ap.parse_args()
     a.saida.mkdir(parents=True, exist_ok=True)
     dados = medir(a.pdf, a.saida, a.obra, a.familia)
@@ -724,6 +727,15 @@ def main():
         au = af["auditoria"]["resumo"]
         print("água fria: " + ", ".join(f"DN{k} {v:.2f} m" for k, v in sorted(q.items())) +
               f" · {len(af['conexoes'])} conexões/registros · {au['conflitos']} conflitos com a alvenaria")
+    if a.esgoto:
+        print("esgoto:", a.esgoto.name)
+        es = ESG.ler_esgoto(a.esgoto, dados, log=print)
+        dados.setdefault("hidraulica", {})["esgoto"] = es
+        q = Counter()
+        for t in es["apartamentos"] + es["coletores"]:
+            q[t["dn"]] += t["L"]
+        print("esgoto: " + ", ".join(f"DN{k} {v:.2f} m" for k, v in sorted(q.items())) +
+              f" · {sum(es['conexoes'].values())} conexões · {len(es['auditoria']['conflitos'])} conflitos com a alvenaria")
     if not a.sem_preco:
         try:
             orc = orcamento(dados, a.saida, a.sinapi, a.desonerado)
@@ -735,9 +747,15 @@ def main():
             rs = f"{orc['total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             print(f"B4: SINAPI {orc['mes']} {orc['uf']}, custo direto R$ {rs}")
             af = (dados.get("hidraulica") or {}).get("agua_fria")
+            es = (dados.get("hidraulica") or {}).get("esgoto")
+            mm = orc["mes"]                           # "10/2026" -> "2026-10"
+            sin = SIN.carregar(f"{mm[3:]}-{mm[:2]}" if "/" in mm else mm, PASTA_PRECOS) if (af or es) else None
+            if es:
+                es["orcamento"] = OHID.calcular_esgoto(es, sin, {"desonerado": orc["premissas"]["desonerado"]})
+                rs = f"{es['orcamento']['total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                print(f"esgoto: SINAPI {orc['mes']}, custo direto R$ {rs}" +
+                      (f" (sem preço: {', '.join(es['orcamento']['nao_achou'])})" if es["orcamento"]["nao_achou"] else ""))
             if af:
-                mm = orc["mes"]                       # "10/2026" -> "2026-10"
-                sin = SIN.carregar(f"{mm[3:]}-{mm[:2]}" if "/" in mm else mm, PASTA_PRECOS)
                 m1 = next(v["m_por_pt"] for v in dados["vistas"] if v["titulo"] == "1ºPavimento")
                 af["orcamento"] = OHID.calcular(af, sin, {"desonerado": orc["premissas"]["desonerado"]}, m1)
                 rs = f"{af['orcamento']['total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")

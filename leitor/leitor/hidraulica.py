@@ -217,11 +217,13 @@ def casar_rotulos(rots, segs, finas, folga=3.0, perto=4.0, raio=24.0, esc=134.0)
     termina no tubo) + penalidade quando o desenho é bem maior que o comprimento do rótulo (o rótulo de
     um tubinho não pode ir para o tubo comprido ao lado). Devolve [(rotulo, idx_seg, como, dist)]."""
     def pena(ro, s):
-        if not ro["L"] or not esc:
-            return 0
         Ld = math.dist(*s)
+        # rótulo de tubo longo não vai para um pedacinho de conexão (< 4 pt) se houver tubo de verdade perto
+        miudo = 6 if (ro["L"] or 0) >= 1.0 and Ld < 4 else 0
+        if not ro["L"] or not esc:
+            return miudo
         maximo = ro["L"] * esc * 1.06 + 3
-        return 0 if Ld <= maximo else 4 + (Ld - maximo) / 4
+        return miudo + (0 if Ld <= maximo else 4 + (Ld - maximo) / 4)
 
     res = []
     for ro in rots:
@@ -330,7 +332,7 @@ def ler_vista(pg, caixa, tx_pag, excl, finas=None):
 # Isométrico de coluna (elevação oblíqua em escala)
 # ----------------------------------------------------------------------------------------------
 RX_COTA = re.compile(r"^(\d),(\d\d)$")
-RX_COLUNA = re.compile(r"^(AF|AL|EXT\w*)\s*-?\s*(\d+)$", re.I)
+RX_COLUNA = re.compile(r"^(AF|AL|EXT\w*|TQ|TG|TS|V|VP|CV)\s*-?\s*(\d+)$", re.I)
 PAVS_TIPO = ["5ºPavimento", "4ºPavimento", "3ºPavimento", "2ºPavimento", "1ºPavimento", "Pavimento Térreo"]
 
 
@@ -613,7 +615,7 @@ def ler_coluna(pg, caixa, tx_pag, excl, niveis: dict, pavs=PAVS_TIPO):
 # ----------------------------------------------------------------------------------------------
 # Plantas: colunas (balões AF-xx) e registro sobre o modelo arquitetônico
 # ----------------------------------------------------------------------------------------------
-def pontos_marcados(pg, caixa, tam=3.5):
+def pontos_marcados(pg, caixa, tam=3.5):  # noqa: D401
     """Centros dos pontinhos pretos (marca da coluna na ponta da chamada do balão)."""
     R = pg.rotation_matrix
     out = []
@@ -831,12 +833,12 @@ def tabela_projetista(tx):
     usados = set()
     for t in tx:
         d = t["t"]
-        if not (("TIGRE" in d or "Hidrômetro" in d or d.startswith("Tubo Soldável")) and len(d) > 12):
+        if not (("TIGRE" in d or "Hidrômetro" in d or d.startswith(("Tubo Soldável", "Tubo Série"))) and len(d) > 12):
             continue
-        row = [u for u in tx if abs(u["c"][1] - t["c"][1]) < 2.0 and abs(u["c"][0] - t["c"][0]) < 420]
-        esq = sorted((u for u in row if u["c"][0] < t["r"][0]), key=lambda u: -u["c"][0])
+        row = [u for u in tx if abs(u["c"][1] - t["c"][1]) < 2.0 and abs(u["c"][0] - t["c"][0]) < 600]
+        esq = sorted((u for u in row if t["r"][0] - 170 < u["c"][0] < t["r"][0]), key=lambda u: -u["c"][0])
         dir_ = sorted((u for u in row if u["c"][0] > t["r"][2]), key=lambda u: u["c"][0])
-        if d.startswith("Tubo Soldável"):
+        if d.startswith(("Tubo Soldável", "Tubo Série")):
             dn = next((_num(u["t"].replace("mm", "")) for u in dir_ if "mm" in u["t"]), None)
             L = next((_num(u["t"]) for u in esq if _num(u["t"]) is not None), None)
             if dn and L is not None and int(dn) not in out["tubos"]:
@@ -858,7 +860,7 @@ def tabela_projetista(tx):
 # ----------------------------------------------------------------------------------------------
 # Montagem: isométricos de coluna + plantas -> rede no modelo
 # ----------------------------------------------------------------------------------------------
-NOMES_PLANTA = {"Sub-Solo": "Sub-Solo", "Pavimento Térreo": "Pavimento Térreo", "1ºPavimento": "1ºPavimento",
+NOMES_PLANTA = {"Sub-Solo": "Sub-Solo", "Subsolo": "Sub-Solo", "Pavimento Térreo": "Pavimento Térreo", "1ºPavimento": "1ºPavimento",
                 "2ºPavimento": "2ºPavimento", "3ºPavimento": "3ºPavimento", "4ºPavimento": "4ºPavimento",
                 "5ºPavimento": "5ºPavimento", "Cobertura": "Cobertura"}
 
@@ -1416,3 +1418,40 @@ def complementar(doc, dados, af, log=print):
     for (g, dn), v in sorted(q.items()):
         log(f"  {g}: DN{dn} {v:.2f} m")
     return {"trechos": extra, "fontes": fontes, "codigos_plantas": {k: v["codigos"] for k, v in planas.items()}}
+
+
+def caixas_por_titulo(pg, tx, prefixos=("Tipo ", "Coletores"), margem=70):
+    """Vistas da folha agrupadas pelo título (o desenho de uma vista pode ter vários pedaços de tubo
+    separados). Cada faixa de tubo vai para o título mais perto na horizontal (abaixo dela)."""
+    faixas = vistas(pg, altura_min=60)
+    tits = [t for t in tx if t["size"] > 14 and t["t"].startswith(prefixos)]
+    tabs = regioes_tabela(tx)
+    carimbo = [t["r"] for t in tx if t["t"].startswith("CUIDADOS DE EXECU")]
+    excl = list(tabs) + [(c[0] - 5, c[1] - 12, 1e5, 1e5) for c in carimbo]
+    if not tits:
+        return [], excl, []
+    grupos = defaultdict(list)
+    for f in faixas:
+        cx_ = (f[0] + f[2]) / 2
+        if any(dentro((cx_, (f[1] + f[3]) / 2), e) for e in excl):
+            continue
+        cands = [t for t in tits if t["r"][1] > f[1]]           # título abaixo do topo da faixa
+        if not cands:
+            continue
+        def dx(t):
+            return 0.0 if f[0] <= t["c"][0] <= f[2] else min(abs(t["c"][0] - f[0]), abs(t["c"][0] - f[2]))
+        t = min(cands, key=lambda t: (dx(t), t["r"][1] - f[3]))
+        if dx(t) < 400:
+            grupos[id(t)].append(f)
+    caixas, nomes = [], []
+    ordem = sorted((t for t in tits if id(t) in grupos), key=lambda t: t["c"][0])
+    uni = []
+    for t in ordem:
+        fs = grupos[id(t)]
+        uni.append([min(f[0] for f in fs), min(f[1] for f in fs), max(f[2] for f in fs), max(max(f[3] for f in fs), t["r"][3])])
+    for k, (t, u) in enumerate(zip(ordem, uni)):
+        x0 = u[0] - margem if k == 0 else max(u[0] - margem, (uni[k - 1][2] + u[0]) / 2)
+        x1 = u[2] + margem if k == len(uni) - 1 else min(u[2] + margem, (u[2] + uni[k + 1][0]) / 2)
+        caixas.append((x0, u[1] - 40, x1, u[3] + 10))
+        nomes.append(t["t"])
+    return caixas, excl, nomes

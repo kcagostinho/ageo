@@ -7,7 +7,7 @@ Plano completo em [`../docs/plano-leitor-de-projetos.md`](../docs/plano-leitor-d
 pip install -r requirements.txt
 python medir.py caminho/projeto.pdf --obra "Nome da obra" --saida obras/<obra>/saida
 # com o projeto de água fria (isométricos de prumada + plantas):
-python medir.py caminho/projeto.pdf --obra "Nome da obra" --saida obras/<obra>/saida --agua-fria caminho/agua_fria.pdf
+python medir.py caminho/projeto.pdf --obra "Nome da obra" --saida obras/<obra>/saida --agua-fria caminho/agua_fria.pdf --esgoto caminho/sanitario.pdf
 ```
 
 Saídas em `--saida`:
@@ -18,7 +18,7 @@ Saídas em `--saida`:
 | `conferencia.html` | Prancha com cada ambiente desenhado e colorido pelo status, para conferência visual |
 | `paredes.html` | Modelo de paredes: cada parede com eixo e espessura, colorida por tipo (estrutural, vedação…). Clique para reclassificar e baixe os ajustes |
 | `paginacao.html` | Paginação estimada: elevação de cada parede bloco a bloco, famílias 29 e 39, com comparação de peças e cortes |
-| `modelo3d.html` | Modelo 3D (three.js embutido): andares alinhados pelo núcleo, paredes por tipo com vãos, ambientes clicáveis, **paginação em blocos 3D** (cintas, vergas, contravergas e pontos de graute em destaque), esquadrias, lajes, cobertura com telhados e reservatórios, muros, filtros, cortes horizontal e vertical, resumo por andar, **mapa de calor do custo (B4)** e modo **Instalações** (água fria: tubos por DN, conexões e registros, clique com DN, comprimento e prancha de origem) |
+| `modelo3d.html` | Modelo 3D (three.js embutido): andares alinhados pelo núcleo, paredes por tipo com vãos, ambientes clicáveis, **paginação em blocos 3D** (cintas, vergas, contravergas e pontos de graute em destaque), esquadrias, lajes, cobertura com telhados e reservatórios, muros, filtros, cortes horizontal e vertical, resumo por andar, **mapa de calor do custo (B4)** e modo **Instalações** (água fria e esgoto: tubos por DN, conexões e registros, filtros por sistema, clique com DN, comprimento e prancha de origem) |
 | `obra.json` | Tudo acima com os polígonos, para as próximas fases (lacunas, EAP) |
 
 ## Como mede
@@ -105,6 +105,17 @@ Saídas em `--saida`:
       - o rótulo repetido em pedaços alinhados do mesmo tubo conta uma vez.
     - **Preço** (`orcamento_hid.py`, aba "Instalações (B4)"): composição SINAPI por DN e tipo de trecho (prumada, ramal de distribuição, ramal/sub-ramal) e por código de conexão/registro. Peça sem composição tem o preço derivado da mais parecida, trocando o insumo.
     - Resultado e pontos para o projetista em `../docs/plano-hidrossanitario.md`.
+19. **Esgoto sanitário** (`esgoto.py`, opção `--esgoto`). Os isométricos são perspectivas (ramais em duas direções), então são lidos só pelos rótulos.
+    - **Quantitativo:** pelos isométricos, cada tubo uma vez.
+      - A parte de baixo de cada isométrico de apartamento (tubo de queda até o coletor) vai para o grupo dos coletores.
+      - Nos coletores, a planta do térreo/subsolo vale para o que ela rotula.
+    - **3D:**
+      - ramais pela planta de cada andar, com o DN pela espessura do traço (desenhado com o diâmetro real);
+      - tubos de queda e ventilações pelos balões TQ-xx/V-xx;
+      - coletores pela planta.
+    - **Auditoria:** coluna dentro de parede onde não cabe; tubo de queda no ambiente, que pede shaft.
+    - **Preço** (`orcamento_hid.calcular_esgoto`): SINAPI por DN e trecho (ramal de descarga, tubo de queda/ventilação, subcoletor), conexões pela descrição da tabela do projetista, caixas e ralos pela quantidade da tabela.
+    - A aba "Instalações (B4)" soma água fria e esgoto.
 ## Limitações conhecidas
 
 - Depende de PDF vetorial com camadas no padrão do CAD (nomes AIA: `A-WALL`, `A-DOOR`…). PDF escaneado não funciona.

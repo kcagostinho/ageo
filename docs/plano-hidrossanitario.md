@@ -55,7 +55,7 @@
 | H1b | Água fria no 3D (modo "Instalações") | **Feito** (prumadas, barrilete, térreo, subsolo e colunas do prédio) |
 | H1c | Auditoria de interferências + preço SINAPI | **Feito**: 0 conflitos; R$ 27.569,26 (SINAPI 10/2026, custo direto) |
 | H1d | Barrilete, alimentação (AL), extravasor, térreo e subsolo | **Feito** no quantitativo. Posição no 3D: horizontais pela planta (altura por premissa); 43 m de verticais do barrilete/térreo só no quantitativo |
-| H2a–c | O mesmo para o esgoto (com caimento, caixas e ralos) | Próxima etapa |
+| H2 | Esgoto: quantitativo, 3D, auditoria e preço | **Feito** (seção 6) |
 
 ## 4. Como ficou a leitura (H1a/H1b, 27/11/2026)
 
@@ -149,3 +149,74 @@
    - No barrilete, o "DN25 5,09m" aparece 11 vezes, para 4 tubos.
    - O "DN40 4,13m" aparece 3 vezes, para 1 tubo.
    - A alimentação e o extravasor aparecem rotulados em várias plantas e vistas.
+
+
+## 6. Esgoto sanitário (H2, 27/11/2026)
+
+**O PDF (pranchas 24 a 30):**
+- plantas do subsolo, do térreo e do 1º ao 5º;
+- 12 isométricos de prumada e 2 de coletores (térreo e subsolo);
+- o 3D do prédio.
+
+Os isométricos são perspectivas de verdade: os ramais correm em duas direções sob o piso, e a horizontal não está em escala. Por isso:
+
+### Como foi lido
+
+- **Quantitativo** (`esgoto.py`): pelos rótulos "DNxx mm / L,LLm" dos isométricos, cada tubo uma vez. O rótulo repetido no mesmo tubo, ou em pedaços alinhados do mesmo tubo, conta uma vez (163 rótulos repetidos).
+- **Parte de baixo de cada isométrico de apartamento.** O tubo de queda até o coletor e os coletores são os mesmos das vistas "Coletores" e das plantas do térreo/subsolo. Um trecho entra no grupo dos coletores, uma vez, quando:
+  - está abaixo do último tubo que se repete andar a andar; ou
+  - é próprio de um tipo (não aparece no mesmo cômodo dos outros tipos) e a planta ou a vista de coletores também o mostra.
+- **Coletores.** A planta do térreo/subsolo rotula cada coletor uma vez e vale para o que rotula. Os isométricos só acrescentam o DN/comprimento que a planta não tem.
+- **Conexões.** Pelos isométricos dos apartamentos, que já desenham o trecho até os coletores. As vistas de coletores repetem as mesmas peças; somá-las dobrava as curvas.
+- **3D:**
+  - os ramais vêm da planta de cada andar, que desenha o tubo com o diâmetro real (o DN sai da espessura do traço: 40 ≈ 2,2 pt, 50 ≈ 3,0, 75 ≈ 4,4, 100 ≈ 6,0);
+  - tubos de queda (TQ-01 a TQ-16) e ventilações (V-xx) pelos balões;
+  - coletores pela planta;
+  - altura por premissa: ramal 25 cm sob a laje e coletor sob a laje do térreo.
+
+### Resultado × tabela do projetista
+
+| Tubo PVC esgoto série normal | Apartamentos | Coletores | **Modelo** | **Tabela** | Diferença |
+|---|---|---|---|---|---|
+| DN40 | 117,48 | 1,65 | **119,13** | 125,47 | −6,34 |
+| DN50 | 252,88 | 22,95 | **275,83** | 280,12 | −4,29 |
+| DN75 | 127,03 | 59,84 | **186,87** | 176,20 | +10,67 |
+| DN100 | 81,55 | 77,13 | **158,68** | 155,45 | +3,23 |
+| DN150 | — | 11,32 | **11,32** | 11,32 | 0 |
+| **Total** | 578,95 | 172,89 | **751,83** | 748,56 | **+0,4%** |
+
+- **Conexões:** 10 dos 22 códigos batem exatamente com a tabela, e os outros diferem de 1 a 4 peças. No total, 1.028 conexões contra 1.052.
+- **Banheiros:** 52,5 m em A, B e C. O D tem 49,8 m, porque no desenho faltam um rótulo do tubo de queda e dois de 0,12 m.
+- **Varandas gourmet:** iguais nos 4 tipos (32,44 m).
+- **Cozinhas:** 57 a 64 m. A do tipo C atende também o térreo.
+
+### Auditoria
+
+- **Prumo:** os 16 tubos de queda e as 12 ventilações ficam no prumo nos 5 andares. A exceção é um balão no 1º andar de TQ-03, TQ-06 e TQ-07, que aponta para outro ponto; nesses casos vale a mediana dos andares.
+- **Nenhuma coluna dentro de parede onde não cabe.**
+- **Tubos de queda DN75/100 junto à parede:** os 12 ficam no ambiente (banheiro, cozinha e varanda), a 4–9 cm da face da parede. **Prever shaft ou enchimento.** É um item de orçamento a definir (fechamento em drywall ou alvenaria).
+- **TQ DN50 das cozinhas** (TQ-03, 07, 11 e 15): ficam dentro de paredes de vedação de 15 cm, o que é compatível.
+
+### Preço (SINAPI 10/2026, sem desoneração, custo direto)
+
+| Grupo | Custo |
+|---|---|
+| Tubos (ramal de descarga/esgoto, tubo de queda/ventilação, subcoletor) | R$ 22.643,01 |
+| Conexões | R$ 26.467,29 |
+| Caixas e ralos (quantidade da tabela do projetista) | R$ 11.517,94 |
+| **Total esgoto** | **R$ 60.628,24** |
+| **Água fria + esgoto** | **R$ 88.197,50** |
+
+**Premissas do preço:**
+- **Adaptador de saída de vaso** (código 01): sem composição no SINAPI; usado o preço do joelho 90° DN100 do ramal.
+- **Junção 100×50 e tê 75×50:** sem composição no SINAPI; usada a peça igual de bitola maior (100×100 e 75×75), a favor da segurança.
+- **Caixas sifonadas, de gordura e de inspeção, prolongamentos e ralos:** quantidade da tabela do projetista. O leitor ainda não conta esses símbolos no desenho.
+- **Caixa de inspeção e prolongamentos:** só material.
+- **Prolongador DN300:** sem preço SINAPI.
+
+### Pontos para o projetista (esgoto)
+
+1. **Banheiro do tipo D:** faltam rótulos (um trecho do tubo de queda e dois DN40 de 0,12 m) que existem nos outros tipos.
+2. **Tabela de conexões:** a "Junção Simples 75 × 75" (código 14) aparece como 75 × 50 em algumas notas. Conferir qual é.
+3. **Shaft dos tubos de queda:** os TQ DN75/100 ficam no ambiente, junto à parede. Indicar o fechamento (shaft/enchimento) no arquitetônico.
+4. **Rótulos repetidos e coletores desenhados em várias vistas:** como na água fria, somar o desenho dá mais que a tabela.

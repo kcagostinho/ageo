@@ -174,34 +174,132 @@ def abas(wb, dados, cabecalho):
 
 
 def aba_orcamento(wb, dados, cabecalho):
-    af = (dados.get("hidraulica") or {}).get("agua_fria") or {}
-    o = af.get("orcamento")
-    if not o:
+    """Instalações (B4): água fria e esgoto, com subtotais por sistema e grupo."""
+    hid = dados.get("hidraulica") or {}
+    sistemas = [(n, (hid.get(k) or {}).get("orcamento")) for n, k in (("Água fria", "agua_fria"), ("Esgoto", "esgoto"))]
+    sistemas = [(n, o) for n, o in sistemas if o]
+    if not sistemas:
         return
     ws = wb.create_sheet("Instalações (B4)")
     cabecalho(ws, ["Grupo", "Item", "SINAPI", "Descrição SINAPI", "Un", "Quantidade", "Preço unitário (R$)", "Custo (R$)"],
-              [20, 58, 10, 70, 6, 12, 14, 14])
+              [24, 58, 10, 70, 6, 12, 14, 14])
     r = 2
-    ini = {}
-    for L in o["linhas"]:
-        ini.setdefault(L["grupo"], r)
-        ws.append([L["grupo"], L["item"], str(L["sinapi"]), L["descr"], L["un"], L["qtd"], L["preco"], None])
-        ws.cell(row=r, column=8, value=f"=F{r}*G{r}")
-        for c in (6, 7, 8):
-            ws.cell(row=r, column=c).number_format = "#,##0.00"
-        r += 1
+    grupos = []
+    for nome, o in sistemas:
+        for L in o["linhas"]:
+            g = f"{nome} · {L['grupo']}"
+            if g not in grupos:
+                grupos.append(g)
+            ws.append([g, L["item"], str(L["sinapi"]), L["descr"], L["un"], L["qtd"], L["preco"], None])
+            ws.cell(row=r, column=8, value=f"=F{r}*G{r}")
+            for c in (6, 7, 8):
+                ws.cell(row=r, column=c).number_format = "#,##0.00"
+            r += 1
     fim = r - 1
     r += 1
-    for g in ini:
-        ws.cell(row=r, column=2, value=f"Subtotal · {g}").font = Font(bold=True)
-        ws.cell(row=r, column=8, value=f'=SUMIF(A2:A{fim},"{g}",H2:H{fim})').number_format = "#,##0.00"
-        r += 1
-    ws.cell(row=r, column=2, value="Total água fria (custo direto, sem BDI)").font = Font(bold=True)
+    for nome, _ in sistemas:
+        for g in [g for g in grupos if g.startswith(nome)]:
+            ws.cell(row=r, column=2, value=f"Subtotal · {g}")
+            ws.cell(row=r, column=8, value=f'=SUMIF(A2:A{fim},"{g}",H2:H{fim})').number_format = "#,##0.00"
+            r += 1
+        ws.cell(row=r, column=2, value=f"Total {nome.lower()}").font = Font(bold=True)
+        c = ws.cell(row=r, column=8, value=f'=SUMIF(A2:A{fim},"{nome} ·*",H2:H{fim})')
+        c.number_format, c.font = "#,##0.00", Font(bold=True)
+        r += 2
+    ws.cell(row=r, column=2, value="Total instalações (água fria + esgoto, custo direto, sem BDI)").font = Font(bold=True)
     c = ws.cell(row=r, column=8, value=f"=SUM(H2:H{fim})")
-    c.number_format = "#,##0.00"
-    c.font = Font(bold=True)
+    c.number_format, c.font = "#,##0.00", Font(bold=True)
     r += 2
-    ws.cell(row=r, column=1, value=f"SINAPI {o['mes']} {o['uf']}, {'com' if o['desonerado'] else 'sem'} desoneração. Quantidades do modelo (aba Água fria).").font = Font(italic=True)
-    for p in o["premissas"]:
+    o0 = sistemas[0][1]
+    ws.cell(row=r, column=1, value=f"SINAPI {o0['mes']} {o0['uf']}, {'com' if o0['desonerado'] else 'sem'} desoneração. "
+                                   "Quantidades do modelo (abas Água fria e Esgoto).").font = Font(italic=True)
+    for nome, o in sistemas:
+        for p in o["premissas"]:
+            r += 1
+            ws.cell(row=r, column=1, value=f"• {nome}: {p}")
+        if o.get("nao_achou"):
+            r += 1
+            ws.cell(row=r, column=1, value=f"• {nome}: sem preço SINAPI — {', '.join(o['nao_achou'])}")
+
+
+def abas_esgoto(wb, dados, cabecalho):
+    es = (dados.get("hidraulica") or {}).get("esgoto")
+    if not es:
+        return
+    tab = es.get("tabela_projetista") or {}
+    ws = wb.create_sheet("Esgoto")
+    cabecalho(ws, ["Item", "Modelo", "Tabela do projetista", "Diferença", "Observação"], [48, 14, 18, 14, 70])
+    r = _titulo(ws, 2, f"Tubos PVC esgoto série normal (m) — fonte: {es['pdf']}")
+    qa, qc = Counter(), Counter()
+    for t in es["apartamentos"]:
+        qa[int(t["dn"])] += t["L"]
+    for t in es["coletores"]:
+        qc[int(t["dn"])] += t["L"]
+    i0 = r
+    for dn in sorted(set(qa) | set(qc) | {int(k) for k in tab.get("tubos", {})}):
+        ws.cell(row=r, column=1, value=f"Tubo PVC esgoto DN{dn}")
+        ws.cell(row=r, column=2, value=round(qa.get(dn, 0) + qc.get(dn, 0), 2)).number_format = "#,##0.00"
+        t_ = tab.get("tubos", {}).get(str(dn))
+        if t_ is not None:
+            ws.cell(row=r, column=3, value=t_).number_format = "#,##0.00"
+            ws.cell(row=r, column=4, value=f"=B{r}-C{r}").number_format = "#,##0.00;-#,##0.00"
+        ws.cell(row=r, column=5, value=f"apartamentos {qa.get(dn, 0):.2f} · coletores {qc.get(dn, 0):.2f}".replace(".", ","))
         r += 1
-        ws.cell(row=r, column=1, value="• " + p)
+    ws.cell(row=r, column=1, value="Total").font = Font(bold=True)
+    for col in (2, 3, 4):
+        L = ws.cell(row=r, column=col).column_letter
+        ws.cell(row=r, column=col, value=f"=SUM({L}{i0}:{L}{r - 1})").number_format = "#,##0.00;-#,##0.00"
+    r += 2
+    ws.cell(row=r, column=1, value=(
+        "Cada tubo uma vez. Apartamentos: isométricos de prumada (rótulo repetido no mesmo tubo conta uma vez). A parte de baixo de "
+        "cada isométrico (tubo de queda até o coletor, coletores) e as vistas de coletores repetem os mesmos tubos das plantas do "
+        "térreo/subsolo: a planta vale para o que ela rotula; os isométricos só acrescentam o que a planta não tem.")).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
+    ws.row_dimensions[r].height = 48
+    r += 2
+    r = _titulo(ws, r, "Conexões (unidades)")
+    r = _linha_cab(ws, r, ["Código · peça", "Modelo", "Tabela do projetista", "Diferença", ""])
+    for k in sorted(set(es["conexoes"]) | set(tab.get("conexoes", {}))):
+        d = tab.get("conexoes", {}).get(k) or []
+        ws.cell(row=r, column=1, value=f"{k} · " + (d[0]["descricao"] if d else ""))
+        ws.cell(row=r, column=2, value=es["conexoes"].get(k, 0))
+        if d:
+            ws.cell(row=r, column=3, value=sum(x["qtd"] for x in d))
+            ws.cell(row=r, column=4, value=f"=B{r}-C{r}")
+        r += 1
+    r += 1
+    r = _titulo(ws, r, "Caixas e ralos (quantidade da tabela do projetista)")
+    for it in tab.get("caixas", []):
+        ws.cell(row=r, column=1, value=it["descricao"])
+        ws.cell(row=r, column=3, value=it["qtd"])
+        r += 1
+    # trechos
+    tr = wb.create_sheet("Esgoto trechos")
+    cabecalho(tr, ["Grupo", "Vista / pavimento", "DN", "Comprimento (m)", "Sentido", "Fonte", "Como"], [14, 30, 6, 14, 11, 50, 30])
+    for t in es["apartamentos"]:
+        tr.append(["Apartamentos", t["vista"], int(t["dn"]), t["L"], "vertical" if t.get("vertical") else "horizontal", t["vista"],
+                   "rótulo do isométrico"])
+    for t in es["coletores"]:
+        tr.append(["Coletores", t["pav"], int(t["dn"]), t["L"], {"h": "horizontal", "v": "vertical"}.get(t["eixo"], "—"), t["origem"], t["como"]])
+    # leitura
+    le = wb.create_sheet("Esgoto leitura")
+    cabecalho(le, ["Item", "Valor", "Detalhe"], [36, 26, 90])
+    r = _titulo(le, 2, "Isométricos")
+    for i in es["isometricos"]:
+        le.append([f"{i['titulo']} (pág. {i['pagina']})", f"{i['rotulos']} rótulos",
+                   f"{i['repetidos']} repetidos no mesmo tubo · {i['sem_tubo']} sem tubo · colunas {', '.join(i['colunas']) or '—'}"])
+    r = le.max_row + 2
+    r = _titulo(le, r, "Plantas registradas sobre a arquitetura")
+    for p in es["plantas"]:
+        le.append([f"{p['pavimento']} (pág. {p['pagina']})", f"escala {p['escala']:.5f}", f"vista {p['vista_arq']} · erro médio {p['rms_mm']} mm · {p['baloes']} balões"])
+    r = le.max_row + 2
+    r = _titulo(le, r, "Tubos de queda e ventilações (auditoria)")
+    au = {c["coluna"]: c for c in (es.get("auditoria") or {}).get("colunas", [])}
+    for c in es["colunas"]:
+        a = au.get(c["id"], {})
+        le.append([c["id"], c.get("diametro") or "", f"{a.get('ambiente', '')} · {a.get('local', '')} · desvio entre andares até "
+                                                    f"{max(c['desvio_mm'].values()):.0f} mm"])
+    for a in es.get("avisos", []):
+        le.append(["", "", a])
+    for row in le.iter_rows(min_row=2):
+        row[2].alignment = Alignment(wrap_text=True, vertical="top")
