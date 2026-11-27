@@ -177,7 +177,7 @@ def paginar_linha(L: dict, familia: str, pe_direito_m: float, prem=PREMISSAS, gu
                 bloq.append((u0, u1, "vao"))
             elif z0 == topo and not (L["tipo"] == "estrutural" and k == n - 1):
                 bloq.append((max(u0 - tr, ini), min(u1 + tr, fim), "verga"))
-            elif tp == "janela" and z0 == base - h:
+            elif tp in ("janela", "varanda") and z0 == base - h:   # contraverga / cinta da mureta
                 bloq.append((max(u0 - tr, ini), min(u1 + tr, fim), "contraverga"))
         respaldo = L["tipo"] == "estrutural" and k == n - 1
         if respaldo:

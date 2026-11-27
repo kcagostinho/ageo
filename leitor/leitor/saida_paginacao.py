@@ -116,7 +116,7 @@ def pagina(dados, pdf, destino):
     payload = {"titulo": v1["titulo"], "caixa": [x0, y0, x1 - x0, y1 - y0], "img": base64.b64encode(pix.tobytes("png")).decode(),
                "m": v1["m_por_pt"], "pd": dados["premissas"]["pe_direito_m"].get(v1["titulo"], 2.6),
                "fam": {f: {"nome": FAMILIAS[f]["nome"],
-                           "linhas": [{k: x[k] for k in ("id", "tipo", "fachada", "eixo", "comprimento_cm", "fiadas", "cortes", "ponta_a", "ponta_b")}
+                           "linhas": [{k: x[k] for k in ("id", "tipo", "fachada", "eixo", "comprimento_cm", "fiadas", "cortes", "ponta_a", "ponta_b", "segmentos")}
                                       for x in pag[f]["detalhes"]]} for f in ("29", "39")},
                "resumo": resumo}
     txt = MODELO.replace("__DADOS__", json.dumps(payload, ensure_ascii=False)).replace("__OBRA__", html.escape(dados["obra"]))

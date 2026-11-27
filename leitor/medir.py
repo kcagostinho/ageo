@@ -21,7 +21,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 sys.path.insert(0, str(Path(__file__).parent))
-from leitor.ambientes import detectar          # noqa: E402
+from leitor.ambientes import detectar, PREMISSA_VARANDA   # noqa: E402
 from leitor.pe_direito import ler_pe_direito   # noqa: E402
 from leitor import quantitativos as Q          # noqa: E402
 from leitor import paredes as PAR              # noqa: E402
@@ -142,7 +142,7 @@ def medir(pdf: Path, saida: Path, obra: str) -> dict:
              "vistas": vistas_out, "ambientes": ambientes_out, "esquadrias": esquadrias_out, "vaos": vaos_out,
              "paredes": paredes_out,
              "premissas": {"pe_direito_m": pd, "fonte_pe_direito": fontes,
-                           "altura_padrao_m": Q.PADRAO_ALTURA}}
+                           "altura_padrao_m": Q.PADRAO_ALTURA, "varanda": PREMISSA_VARANDA}}
     dados["quantitativos"] = Q.calcular(dados, pd)
     # paginação estimada, famílias 29 e 39 (detalhe bloco a bloco do primeiro pavimento-tipo)
     v_tipo = next((v["id"] for v in vistas_out if "1º" in v["titulo"]), None)
@@ -288,7 +288,14 @@ def planilha(dados: dict, destino: Path):
     for k, (t, h) in enumerate(dados["premissas"]["altura_padrao_m"].items(), j + 1):
         pr.cell(row=k, column=1, value=t)
         pr.cell(row=k, column=2, value=h).number_format = "0.00"
-    pr.cell(row=j + 4, column=1, value="Células em amarelo são editáveis: a aba Quantitativos recalcula sozinha.").font = Font(italic=True)
+    vr = dados["premissas"]["varanda"]
+    pr.cell(row=j + 4, column=1, value="Varanda (guarda-corpo em mureta)").font = Font(bold=True)
+    pr.cell(row=j + 5, column=1, value="Altura da mureta (m)")
+    pr.cell(row=j + 5, column=2, value=vr["peitoril_m"]).number_format = "0.00"
+    pr.cell(row=j + 6, column=1, value="Topo da abertura (m)")
+    pr.cell(row=j + 6, column=2, value=vr["topo_m"]).number_format = "0.00"
+    pr.cell(row=j + 7, column=1, value=vr["fonte"])
+    pr.cell(row=j + 9, column=1, value="Células em amarelo são editáveis: a aba Quantitativos recalcula sozinha.").font = Font(italic=True)
 
     # quantitativos por ambiente
     qt = wb.create_sheet("Quantitativos")

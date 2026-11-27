@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 import unicodedata
 
-PADRAO_ALTURA = {"porta": 2.10, "janela": 1.20}
+PADRAO_ALTURA = {"porta": 2.10, "janela": 1.20, "varanda": 1.60}
 
 
 def _sem_acento(t: str) -> str:
@@ -38,6 +38,9 @@ def casar_etiquetas(vaos: list[dict], esquadrias: list[dict], m_por_pt: dict[str
     """Liga cada vão à etiqueta (L x H) mais próxima do mesmo tipo e mesma largura."""
     usadas = set()
     for v in sorted(vaos, key=lambda v: v["largura_m"]):
+        if v["tipo"] == "varanda":      # altura e peitoril vêm da premissa da varanda
+            v.setdefault("etiqueta", True)
+            continue
         m = m_por_pt[v["vista"]]
         cands = []
         for i, e in enumerate(esquadrias):
@@ -66,6 +69,7 @@ def calcular(dados: dict, pe_direito: dict[str, float], pd_padrao: float = 2.60)
         tipo = classificar(a["nome"])
         portas = [vaos[i] for i in a.get("vaos", []) if vaos[i]["tipo"] == "porta"]
         janelas = [vaos[i] for i in a.get("vaos", []) if vaos[i]["tipo"] == "janela"]
+        varandas = [vaos[i] for i in a.get("vaos", []) if vaos[i]["tipo"] == "varanda"]
         obs = []
         if tipo == "técnico":
             obs.append("Poço de elevador: não recebe acabamento de piso/parede.")
@@ -73,8 +77,8 @@ def calcular(dados: dict, pe_direito: dict[str, float], pd_padrao: float = 2.60)
             obs.append("Piso = projeção horizontal; degraus (piso + espelho) a quantificar à parte.")
         if a["sem_parede_m"] and a["sem_parede_m"] > 0.3:
             obs.append(f"{a['sem_parede_m']:.2f} m de contorno sem parede (passagem ou lado aberto).")
-        if tipo == "externa":
-            obs.append("Varanda: o lado do guarda-corpo entra como parede de pé-direito inteiro; conferir altura real.")
+        for v in varandas:
+            obs.append(f"Abertura da varanda {v['largura_m']:.2f} × {v['altura_m']:.2f} m (mureta de {v['peitoril_m']:.2f} m + gradil) descontada da parede.")
         if tipo == "garagem":
             obs.append("Contorno da garagem = muros/arrimo: altura e acabamento a confirmar.")
         if any(not v["etiqueta"] for v in portas + janelas):
@@ -82,7 +86,7 @@ def calcular(dados: dict, pe_direito: dict[str, float], pd_padrao: float = 2.60)
         if a.get("observacao"):
             obs.append(a["observacao"])
         pdm = pe_direito.get(a["pavimento"], pd_padrao)
-        vaos_m2 = sum(v["largura_m"] * v["altura_m"] for v in portas + janelas)
+        vaos_m2 = sum(v["largura_m"] * v["altura_m"] for v in portas + janelas + varandas)
         linhas.append({
             "indice_ambiente": idx, "vista": a["vista"],
             "pavimento": a["pavimento"], "ambiente": a["nome"], "tipo": tipo,
@@ -95,7 +99,7 @@ def calcular(dados: dict, pe_direito: dict[str, float], pd_padrao: float = 2.60)
             "sem_parede_m": round(a["sem_parede_m"], 3),
             "n_portas": len(portas), "larg_portas_m": round(sum(v["largura_m"] for v in portas), 3),
             "n_janelas": len(janelas),
-            "area_vaos_m2": round(sum(v["largura_m"] * v["altura_m"] for v in portas + janelas), 3),
+            "area_vaos_m2": round(vaos_m2, 3),
             "observacao": " ".join(obs),
         })
     return linhas

@@ -134,6 +134,12 @@ A B1 não depende das decisões abaixo e pode começar já.
 - **Interno:** fundo preparador + gesso direto no bloco.
 - **Fachada:** pintura projetada direto no bloco, sem emboço. O bloco da fachada precisa ter padrão de alvenaria aparente (faces e arestas regulares, junta bem acabada).
 
+**Varanda gourmet (revisado em 27/11/2026):**
+- O lado externo da varanda tem 1,50 m de **mureta** (traço fino na planta, abaixo do plano de corte) com gradil e corrimão. Os 0,60 m restantes são parede inteira, atrás do tanque.
+- Pela Fachada Frontal (rua Ernesto): mureta até 0,60 m (3 fiadas); abertura de 1,50 m até 2,20 m; verga em 2,20–2,40; respaldo em cima.
+- O modelo trata a varanda como vão (mureta + abertura), com cinta no topo da mureta e verga, e desconta a abertura das áreas de parede.
+- **A confirmar:** a planta indica "guarda-corpo h=1,30 m", mas na fachada o corrimão aparece a cerca de 1,10 m. A altura da mureta (0,60) e o topo da abertura (2,20) são premissas editáveis.
+
 **Pendente:**
 
 1. **Bloco:** concreto ou cerâmico? Família 29 (módulo 15) ou 39 (módulo 20)? Largura do bloco de vedação?

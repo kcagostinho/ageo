@@ -25,6 +25,12 @@ CAMADAS_SOBREPOSTAS = ("Q-SPCQ", "P-SANR-FIXT")
 EVID_PORTA = ("A-DOOR", "A-DOOR-FRAM", "A-DOOR-GLAZ", "A-FLOR")
 EVID_JANELA = ("A-GLAZ",)
 NUM = re.compile(r"^\d{1,4},\d{2}$")
+# varanda: guarda-corpo = mureta baixa (paredes desenhadas com traço fino, abaixo do plano de corte)
+# com corrimão por cima. Altura da mureta e topo da abertura medidos na fachada (premissas editáveis).
+VARANDA = ("gourmet", "varanda", "sacada", "terraço", "terraco")
+PREMISSA_VARANDA = {"peitoril_m": 0.60, "topo_m": 2.20,
+                    "fonte": "Fachada Frontal (rua Ernesto), prancha 4: mureta até 0,60 m, gradil e corrimão até ~1,10 m, "
+                             "abertura até 2,20 m. A planta indica guarda-corpo h=1,30 m: confirmar."}
 
 
 def _orient(s, tol=0.05):
@@ -192,6 +198,39 @@ def _extremos(a, b):
     return max(((p, q) for p in pts for q in pts), key=lambda pq: (pq[0][0] - pq[1][0]) ** 2 + (pq[0][1] - pq[1][1]) ** 2)
 
 
+def _varandas(pag: Pagina, c, m_por_pt: float, rotulos) -> list[tuple]:
+    """Trechos de guarda-corpo em mureta: corrimão entre duas faces de parede finas (traço de
+    projeção, não de corte), a até 3 m de um rótulo de varanda. Devolve os retângulos do corpo da mureta."""
+    alvo = [r for r in rotulos if any(k in r.nome.lower() for k in VARANDA)]
+    if not alvo:
+        return []
+    na = lambda s: _na_caixa(s[2], s[3], c) or _na_caixa(s[4], s[5], c)
+    finas = [(s, oc) for s in pag.segmentos if s[0] == "A-WALL" and s[1] < 0.8 and na(s) and (oc := _orient(s[2:6]))]
+    res = set()
+    for s in pag.segmentos:
+        if s[0] != "Corrimão" or not na(s) or not (oc := _orient(s[2:6])):
+            continue
+        o, cc, a, b = oc
+        if (b - a) * m_por_pt < 0.5:
+            continue
+        lados = [f for f in finas if f[1][0] == o and 0.2 < abs(f[1][1] - cc) <= 0.15 / m_por_pt and f[1][2] < b - 1 and f[1][3] > a + 1]
+        menor = [f for f in lados if f[1][1] < cc]
+        maior = [f for f in lados if f[1][1] > cc]
+        if not menor or not maior:
+            continue
+        f1 = max(menor, key=lambda f: f[1][1])[1]
+        f2 = min(maior, key=lambda f: f[1][1])[1]
+        lo, hi = max(a, f1[2], f2[2]), min(b, f1[3], f2[3])
+        if (hi - lo) * m_por_pt < 0.5:
+            continue
+        rect = (lo, f1[1], hi, f2[1]) if o == "h" else (f1[1], lo, f2[1], hi)
+        cx, cy = (rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2
+        if min(((r.x - cx) ** 2 + (r.y - cy) ** 2) ** 0.5 for r in alvo) * m_por_pt > 3.0:
+            continue
+        res.add(tuple(round(v, 2) for v in rect))
+    return sorted(res)
+
+
 def _regioes(segs, retangulos, c, m_por_pt, eps, faixa_fina_m):
     linhas = shapely.linestrings(np.array(segs, dtype=float).reshape(-1, 2, 2))
     tinta = shapely.union_all(list(shapely.buffer(linhas, eps, cap_style="square", join_style="mitre"))
@@ -326,9 +365,6 @@ def detectar(pag: Pagina, caixa, m_por_pt: float, vista: str = "", eps: float = 
         r_ = 0.20 / m_por_pt
         buf_vaos.append(box(bx[0] - 1, bx[1] - r_, bx[2] + 1, bx[3] + r_) if (bx[2] - bx[0]) >= (bx[3] - bx[1])
                         else box(bx[0] - r_, bx[1] - 1, bx[2] + r_, bx[3] + 1))
-    if vaos_saida is not None:
-        vaos_saida.extend(reg_vaos)
-    arv_vaos = shapely.STRtree(buf_vaos) if buf_vaos else None
     tinta_parede = shapely.union_all(shapely.buffer(
         shapely.linestrings(np.array(paredes + faces, dtype=float).reshape(-1, 2, 2)), 1.0, cap_style="flat"))
     base = [s[2:6] for s in pag.segmentos if s[0] in camadas and s[0] != "A-FLOR" and na(s)] + faces + apoio
@@ -345,6 +381,20 @@ def detectar(pag: Pagina, caixa, m_por_pt: float, vista: str = "", eps: float = 
             cont[i] = cont.get(i, 0) + 1
         return cont
     cont_a, cont_b = contagem(leitura_a), contagem(leitura_b)
+
+    # vãos de varanda: trecho de mureta (faces finas + corrimão) junto a um ambiente de varanda
+    for rect in _varandas(pag, c, m_por_pt, rotulos):
+        x0, y0, x1, y1 = rect
+        reg_vaos.append({"id": f"{vista or pag.numero}-V{len(reg_vaos) + 1:03d}", "tipo": "varanda",
+                         "largura_m": round(max(x1 - x0, y1 - y0) * m_por_pt, 3), "espessura_m": round(min(x1 - x0, y1 - y0) * m_por_pt, 3),
+                         "centro": [round((x0 + x1) / 2, 2), round((y0 + y1) / 2, 2)], "retangulo": [round(v, 2) for v in rect],
+                         "ambientes": [], "peitoril_m": PREMISSA_VARANDA["peitoril_m"],
+                         "altura_m": round(PREMISSA_VARANDA["topo_m"] - PREMISSA_VARANDA["peitoril_m"], 2),
+                         "etiqueta": True, "por_guarda_corpo": True})
+        buf_vaos.append(box(*rect).buffer(2.0, join_style="mitre"))
+    if vaos_saida is not None:
+        vaos_saida.extend(reg_vaos)
+    arv_vaos = shapely.STRtree(buf_vaos) if buf_vaos else None
 
     ambientes = []
     for r in rotulos:

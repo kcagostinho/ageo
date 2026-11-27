@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
 TIPOS = ["estrutural", "vedação", "concreto", "muro", "a definir"]
-PADRAO_ALT = {"porta": 2.10, "janela": 1.20}
+PADRAO_ALT = {"porta": 2.10, "janela": 1.20, "varanda": 1.60}
 
 
 def _vaos_m2(pw):
