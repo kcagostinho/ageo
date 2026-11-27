@@ -135,6 +135,46 @@ def _canaletas(ini, fim, fam, tipo_can, tol, pecas, cont):
         pecas.append((x, r, tipo_can)); cont[nome] += 1; cont["cortes (peças)"] += 1; cont["cortes (cm)"] += r
 
 
+def _uniao(iv):
+    out = []
+    for a, b in sorted(iv):
+        if out and a <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
+
+
+def _uniao_tipada(iv, folga=0.0):
+    """Une intervalos (a, b, tipo) que se sobrepõem ou ficam a menos de 'folga'; vale o tipo do primeiro."""
+    out = []
+    for a, b, t in sorted(iv):
+        if out and a <= out[-1][1] + folga:
+            out[-1] = (out[-1][0], max(out[-1][1], b), out[-1][2])
+        else:
+            out.append((a, b, t))
+    return out
+
+
+def _subtrair(iv, cortes):
+    res = []
+    for a, b in iv:
+        pedacos = [(a, b)]
+        for c0, c1 in cortes:
+            novo = []
+            for x0, x1 in pedacos:
+                if c1 <= x0 or c0 >= x1:
+                    novo.append((x0, x1))
+                else:
+                    if c0 > x0:
+                        novo.append((x0, c0))
+                    if c1 < x1:
+                        novo.append((c1, x1))
+            pedacos = novo
+        res += [(x0, x1) for x0, x1 in pedacos if x1 - x0 > 0.5]
+    return res
+
+
 def paginar_linha(L: dict, familia: str, pe_direito_m: float, prem=PREMISSAS, guardar=False):
     fam = FAMILIAS[familia] if L["tipo"] == "estrutural" else VEDACAO
     h, tol, tr = prem["fiada_cm"], prem["tolerancia_cm"], prem["transpasse_verga_cm"]
@@ -170,44 +210,47 @@ def paginar_linha(L: dict, familia: str, pe_direito_m: float, prem=PREMISSAS, gu
                 passa, ext = False, 0.0
             lim.append((ext, passa, tipo))
         ini, fim = -lim[0][0], comp + lim[1][0]
-        # bloqueios nesta fiada: vãos, vergas/contravergas, blocos especiais
-        bloq = []   # (u0, u1, tipo)
+        # bloqueios nesta fiada, por prioridade: vãos > vergas/contravergas > blocos especiais
+        vaos_k, elem = [], []
         for u0, u1, base, topo, tp in vaos:
             if base <= z0 < topo:
-                bloq.append((u0, u1, "vao"))
+                vaos_k.append((u0, u1))
             elif z0 == topo and not (L["tipo"] == "estrutural" and k == n - 1):
-                bloq.append((max(u0 - tr, ini), min(u1 + tr, fim), "verga"))
+                elem.append((u0 - tr, u1 + tr, "verga"))
             elif tp in ("janela", "varanda") and z0 == base - h:   # contraverga / cinta da mureta
-                bloq.append((max(u0 - tr, ini), min(u1 + tr, fim), "contraverga"))
+                elem.append((u0 - tr, u1 + tr, "contraverga"))
+        vaos_k = _uniao(vaos_k)
+        # vergas/contravergas vizinhas (folga menor que um bloco) viram uma peça contínua;
+        # nunca entram num vão desta fiada
+        elem = _uniao_tipada(elem, folga=fam["passo"])
+        elem = [(a, b, t) for a0, b0, t in elem for a, b in _subtrair([(a0, b0)], vaos_k)]
         respaldo = L["tipo"] == "estrutural" and k == n - 1
         if respaldo:
             _canaletas(ini, fim, fam, "J" if L["fachada"] else "U", tol, pecas, cont)
         else:
-            # especiais: L (fam. 39) na ponta que passa; T em fiadas pares
+            # especiais: L (fam. 39) na ponta que passa
             if fam.get("L"):
                 nomeL, pL = fam["L"]
                 if lim[0][1] and lim[0][2] == "L":
                     pecas.append((ini, pL, "especial")); cont[nomeL] += 1; ini += pL
                 if lim[1][1] and lim[1][2] == "L":
                     pecas.append((fim - pL, pL, "especial")); cont[nomeL] += 1; fim -= pL
+            ocup = [(a, b, "vao") for a, b in vaos_k] + elem
+            ocup = [(max(a, ini), min(b, fim), t) for a, b, t in ocup if min(b, fim) > max(a, ini)]
+            # T em fiadas pares: bloco especial centrado no encontro, só se não colidir com vão/verga
             if fam.get("T") and par:
                 nomeT, pT = fam["T"]
                 for t in L.get("ts", []):
-                    if not any(b0 - 1 <= t <= b1 + 1 for b0, b1, _ in bloq):
-                        bloq.append((t - pT / 2, t + pT / 2, "especial"))
-                        cont[nomeT] += 1
-            bloq.sort()
-            # funde sobreposições
-            fund = []
-            for b in bloq:
-                if fund and b[0] <= fund[-1][1]:
-                    a0, a1, t0 = fund[-1]
-                    fund[-1] = (a0, max(a1, b[1]), t0 if t0 != "vao" else "vao")
-                else:
-                    fund.append(b)
+                    a, b = t - pT / 2, t + pT / 2
+                    if a >= ini and b <= fim and not any(a < y1 and b > y0 for y0, y1, _ in ocup):
+                        ocup.append((a, b, "especial")); cont[nomeT] += 1
+                    else:
+                        cont["amarração T sem bloco especial (junto a vão)"] += 1
+            ocup.sort()
             x, borda = ini, "livre" if L["ponta_a"] == "livre" else "canto"
-            for b0, b1, tp in fund:
-                b0, b1 = max(b0, ini), min(b1, fim)
+            for b0, b1, tp in ocup:
+                if b0 < x:          # segurança: nunca sobrepor peças
+                    b0 = x
                 if b1 <= b0:
                     continue
                 _preencher(x, b0, fam, par, borda, tol, pecas, cont, borda_dir="vao" if tp == "vao" else "canto")

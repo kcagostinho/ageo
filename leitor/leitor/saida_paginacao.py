@@ -128,8 +128,8 @@ MODELO = r"""<!doctype html>
 <title>Paginação da Alvenaria</title>
 <style>
 :root{--bg:#FAFAF7;--card:#fff;--elev:#F1EFE8;--bd:rgba(0,0,0,.1);--tx:#1A1A1A;--mut:#5F5E5A;--dim:#888780;--acc:#0F6E56;--bloco:#D9D6CC;--meio:#EDEAE0;--esp:#8E7CC3;--can:#E39B3A;--ver:#C0392B;--corte:#1A1A1A}
-@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1A1A1A;--card:#242422;--elev:#2C2C2A;--bd:rgba(255,255,255,.12);--tx:#F5F5F2;--mut:#B4B2A9;--dim:#888780;--acc:#5DCAA5;--bloco:#5A5850;--meio:#46443E;--corte:#F5F5F2}}
-:root[data-theme=dark]{--bg:#1A1A1A;--card:#242422;--elev:#2C2C2A;--bd:rgba(255,255,255,.12);--tx:#F5F5F2;--mut:#B4B2A9;--dim:#888780;--acc:#5DCAA5;--bloco:#5A5850;--meio:#46443E;--corte:#F5F5F2}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1A1A1A;--card:#242422;--elev:#2C2C2A;--bd:rgba(255,255,255,.12);--tx:#F5F5F2;--mut:#B4B2A9;--dim:#888780;--acc:#5DCAA5;--bloco:#7A776E;--meio:#A9A598;--corte:#FFFFFF}}
+:root[data-theme=dark]{--bg:#1A1A1A;--card:#242422;--elev:#2C2C2A;--bd:rgba(255,255,255,.12);--tx:#F5F5F2;--mut:#B4B2A9;--dim:#888780;--acc:#5DCAA5;--bloco:#7A776E;--meio:#A9A598;--corte:#FFFFFF}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
 .wrap{max-width:1320px;margin:0 auto;padding:16px}h1{font-size:18px;margin:0 0 2px;font-weight:600}.sub{color:var(--mut);font-size:12px;margin-bottom:12px}
 .seg{display:inline-flex;border:1px solid var(--bd);border-radius:8px;overflow:hidden;margin-bottom:10px}
@@ -174,11 +174,11 @@ function elevacao(){
  if(!L){box.innerHTML="";return}
  const n=L.fiadas.length,H=20,NS="http://www.w3.org/2000/svg";
  let xmin=0,xmax=L.comprimento_cm;L.fiadas.forEach(f=>f.forEach(p=>{xmin=Math.min(xmin,p[0]);xmax=Math.max(xmax,p[0]+p[1])}));
- const esc=Math.max(0.9,Math.min(2.2,((box.clientWidth||600)-24)/(xmax-xmin)));
+ const esc=Math.max(0.6,Math.min(2.2,((box.clientWidth||600)-24)/(xmax-xmin)));
  const W=(xmax-xmin)*esc+20,Ht=n*H*esc+20,svg=document.createElementNS(NS,"svg");svg.setAttribute("viewBox",`0 0 ${W} ${Ht}`);svg.setAttribute("width",Math.max(W,300));
  L.fiadas.forEach((f,k)=>{const yy=Ht-10-(k+1)*H*esc;f.forEach(([u,w,t])=>{const r=document.createElementNS(NS,"rect");
   r.setAttribute("x",10+(u-xmin)*esc+0.5);r.setAttribute("y",yy+0.5);r.setAttribute("width",Math.max(w*esc-1,0.5));r.setAttribute("height",H*esc-1);
-  if(t==="vao"){r.setAttribute("fill","none");r.setAttribute("stroke","#999");r.setAttribute("stroke-dasharray","3 2")}else{r.setAttribute("fill",COR[t]||"var(--bloco)");r.setAttribute("stroke","rgba(0,0,0,.25)")}
+  if(t==="vao"){r.setAttribute("fill","none");r.setAttribute("stroke","var(--dim)");r.setAttribute("stroke-dasharray","3 2")}else{r.setAttribute("fill",COR[t]||"var(--bloco)");r.setAttribute("stroke","rgba(0,0,0,.25)")}
   const tt=document.createElementNS(NS,"title");tt.textContent=`${t} · ${w.toFixed(0)} cm`;r.appendChild(tt);svg.appendChild(r)})});
  box.innerHTML="";box.appendChild(svg);
  document.getElementById("et").textContent=`Elevação · ${L.id} (${L.tipo})`;
