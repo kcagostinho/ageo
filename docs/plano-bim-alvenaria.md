@@ -13,6 +13,10 @@ Status em 27/11/2026:
   - Blocos, canaletas, argamassa e tela: quantidade da paginação × insumo SINAPI.
   - Mão de obra da alvenaria: pedreiro + servente da composição SINAPI.
   - Graute, armação, encunhamento e revestimentos: composição SINAPI completa.
+- **Alteração de projeto (27/11/2026): cozinha aberta para a sala.**
+  - Saem a parede de 1,55 m e a porta de 0,80 m entre a Cozinha/Á.S. e a Sala, em cada apartamento: 20 paredes e 20 portas. A parede de 2,80 m entre os dois ambientes continua.
+  - Aplicada por `obras/<obra>/alteracoes.json`, a cada leitura (ver `leitor/leitor/alteracoes.py`).
+  - Efeito: +4,32 m² de piso; −405 blocos 9×19×39 e −435 blocos para corte; B4 de R$ 510.686 para R$ 500.388 (−R$ 10.298).
 - **Revisão da paginação (27/11/2026), conferida bloco a bloco por andar:**
   - cruzamento em X: a estrutural passa direto e a vedação para nas faces; paredes de mesmo tipo alternam por fiada. Antes, os dois blocos ocupavam o mesmo lugar;
   - junta a prumo = desencontro menor que 5 cm (antes 2,5 cm). Quando as arrumações simples não resolvem, uma busca exaustiva escolhe a combinação de peças. Resultado: 0 juntas a prumo;
@@ -25,22 +29,22 @@ Status em 27/11/2026:
 
 | Grupo | Custo direto |
 |---|---|
-| Alvenaria estrutural (blocos, argamassa, mão de obra) | R$ 141.442 |
-| Alvenaria de vedação (blocos, argamassa, tela, mão de obra, encunhamento) | R$ 83.833 |
-| Graute | R$ 31.256 |
-| Armação | R$ 27.893 |
-| Revestimento interno (fundo preparador, gesso, chapisco + emboço + cerâmica) | R$ 184.438 |
+| Alvenaria estrutural (blocos, argamassa, mão de obra) | R$ 139.313 |
+| Alvenaria de vedação (blocos, argamassa, tela, mão de obra, encunhamento) | R$ 79.627 |
+| Graute | R$ 31.049 |
+| Armação | R$ 27.368 |
+| Revestimento interno (fundo preparador, gesso, chapisco + emboço + cerâmica) | R$ 181.206 |
 | Revestimento externo (selador + textura: fachada, varandas, platibanda) | R$ 41.825 |
-| **Total** | **R$ 510.686** |
+| **Total** | **R$ 500.388** |
 
-- Por pavimento-tipo: cerca de R$ 98 mil (R$ 440/m²). Térreo: R$ 19,9 mil (só revestimentos). Cobertura: R$ 3,9 mil (platibanda).
-- R$ 384/m² sobre 1.329 m² acima do subsolo = 15,6% do custo do prédio pelo CUB R8-N (R$ 2.245,68/m² × 1.458 m²).
+- Por pavimento-tipo: de R$ 94,9 mil a R$ 95,9 mil (varia com o fbk). Térreo: R$ 19,7 mil (só revestimentos). Cobertura: R$ 3,9 mil (platibanda).
+- R$ 376/m² sobre 1.329 m² acima do subsolo = 15,3% do custo do prédio pelo CUB R8-N (R$ 2.245,68/m² × 1.458 m²).
 - Maiores itens:
   - gesso das paredes: R$ 59 mil;
   - bloco 14×19×39: R$ 53 mil;
   - mão de obra da alvenaria estrutural: R$ 43 mil;
   - mão de obra da vedação: R$ 37 mil.
-- Os 4.290 blocos para cortes custam R$ 21,0 mil (4% da B4). Modular portas e janelas reduz esse valor.
+- Os 3.855 blocos para cortes custam R$ 18,9 mil (4% da B4). Modular portas e janelas reduz esse valor.
 - Premissas a confirmar (todas editáveis na aba Preços (B4)):
   - fbk 8/8/6/4,5/4,5 MPa do 1º ao 5º pavimento;
   - fgk 20 MPa;
@@ -57,14 +61,14 @@ Status em 27/11/2026:
 |---|---|
 | Bloco 14×19×39 / meio / 34 / 54 | 10.810 / 1.119 / 378 / 210 un |
 | Canaleta J / U (14 cm) | 1.035 / 1.581 un (+ meias) |
-| Blocos para cortes/compensadores | 4.290 un (cai muito com portas/janelas moduladas) |
-| Bloco 9×19×39 / meio / canaleta | 9.792 / 1.665 / 315 un |
-| Argamassa de assentamento (estrutural + vedação) | 5,96 + 3,95 m³ |
-| Graute (cintas, vergas/contravergas, pontos verticais, vedação) | 7,83 + 6,56 + 13,76 + 0,99 m³ |
-| Aço (Ø10 cintas, Ø8 vergas, Ø10 verticais, Ø6,3 vedação) | 715 + 384 + 753 + 65 kg |
-| Telas vedação × estrutural / encunhamento | 792 un / 450 m |
-| Fundo preparador / gesso paredes / gesso tetos | 3.871 / 2.775 / 1.096 m² |
-| Cerâmica banheiros (até o teto) / cozinhas (1,50 m) | 370 / 343 m² (premissa) |
+| Blocos para cortes/compensadores | 3.855 un (cai muito com portas/janelas moduladas) |
+| Bloco 9×19×39 / meio / canaleta | 9.387 / 1.659 / 252 un |
+| Argamassa de assentamento (estrutural + vedação) | 5,96 + 3,75 m³ |
+| Graute (cintas, vergas/contravergas, pontos verticais, vedação) | 7,83 + 6,56 + 13,76 + 0,82 m³ |
+| Aço (Ø10 cintas, Ø8 vergas, Ø10 verticais, Ø6,3 vedação) | 715 + 384 + 753 + 54 kg |
+| Telas vedação × estrutural / encunhamento | 660 un / 417 m |
+| Fundo preparador / gesso paredes / gesso tetos | 3.814 / 2.713 / 1.100 m² |
+| Cerâmica banheiros (até o teto) / cozinhas (1,50 m) | 370 / 327 m² (premissa) |
 | Pintura projetada: fachada / varandas / platibanda | 1.060 / 246 / 176 m² |
 
 ### Resultado da B2 (por pavimento-tipo; os 5 são iguais)

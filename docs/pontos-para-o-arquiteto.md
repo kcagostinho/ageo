@@ -4,6 +4,24 @@ Divergências encontradas pelo leitor entre o desenho, as cotas e os rótulos do
 
 Atualizado em 27/11/2026.
 
+## 0. Alterações de projeto já aplicadas no modelo (incorporar no desenho)
+
+**Cozinha aberta para a sala** (decisão do proprietário, 27/11/2026).
+- Em todos os apartamentos (4 por andar, 1º ao 5º) sai a parede de 1,55 m entre a Cozinha/Á.S. e a Sala Estar/Jantar, com a porta de 0,80 × 2,10.
+- A parede de 2,80 m entre os dois ambientes continua e passa a terminar em ponta livre.
+- O piso da faixa onde estava a parede vai metade para cada ambiente: cozinha 5,53 → 5,63 m² e sala 15,95 → 16,05 m².
+- **Pedido ao arquiteto:**
+  - atualizar as plantas dos pavimentos tipo;
+  - atualizar os rótulos de área;
+  - tirar as 20 portas do quadro de esquadrias.
+- O leitor aplica a alteração pelo arquivo `obras/reserva-pauliceia/alteracoes.json` (fora do git, com o PDF). Conteúdo, para recriar se preciso:
+
+```json
+{"remover_paredes": [{"descricao": "Parede com porta entre a Cozinha/Á.S. e a Sala Estar/Jantar removida: acesso aberto, sem porta (a parede de 2,80 m entre os dois ambientes continua)",
+  "entre": ["Cozinha/Á.S.", "Sala Estar/Jantar"], "com_porta": true, "comprimento_max_m": 2.0,
+  "data": "2026-11-27", "origem": "decisão do proprietário"}]}
+```
+
 ## 1. Pavimentos tipo (1º ao 5º): sem divergência no projeto
 
 - Os 5 pavimentos são o mesmo desenho:

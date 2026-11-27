@@ -58,7 +58,7 @@ def casar_etiquetas(vaos: list[dict], esquadrias: list[dict], m_por_pt: dict[str
         feitos.add(j)
         usadas.add(i)
         e = esquadrias[i]
-        vaos[j].update(altura_m=e["altura_m"], peitoril_m=e["peitoril_m"], etiqueta=True)
+        vaos[j].update(altura_m=e["altura_m"], peitoril_m=e["peitoril_m"], etiqueta=True, etiqueta_xy=e["xy"])
     for j, v in enumerate(vaos):
         if v["tipo"] != "varanda" and j not in feitos:
             v.update(altura_m=PADRAO_ALTURA[v["tipo"]], peitoril_m=None, etiqueta=False)

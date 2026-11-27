@@ -199,6 +199,15 @@ def checar(dados: dict) -> list[tuple[str, str, str, bool]]:
         txt = (f"{mil(c['peças'])} peças e {mil(c['juntas verticais'])} juntas conferidas: sem sobreposição, sem lacuna, "
                f"sem corte < 5 cm e sem junta a prumo")
         out.append(("Paginação", t_, txt if not prob else " · ".join(f"{k}: {n}" for k, n in prob.items()), not prob))
+    alt = dados.get("alteracoes") or []
+    if alt:
+        regras = sorted({r["regra"] for r in alt})
+        for rg in regras:
+            rs = [r for r in alt if r["regra"] == rg]
+            out.append(("Alterações de projeto", rg[:90],
+                        f"{len(rs)} paredes removidas em {len({r['pavimento'] for r in rs})} pavimentos · "
+                        f"{sum(len(r['vaos']) for r in rs)} vãos e {sum(len(r['etiquetas']) for r in rs)} etiquetas fora da contagem · "
+                        f"+{sum(sum(r['piso_acrescido_m2'].values()) for r in rs):.2f} m² de piso".replace(".", ","), True))
     ms = {round(v["m_por_pt"], 9) for v in vistas}
     out.append(("Escala", "Escala única do documento", f"{len(ms)} escala(s) em {len(vistas)} vistas", len(ms) == 1))
     return out

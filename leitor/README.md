@@ -77,6 +77,11 @@ Saídas em `--saida`:
     - escala única;
     - geometria: ambientes sobrepostos, parede sobre ambiente, parede sem comprimento, vão fora da parede;
     - paginação refeita bloco a bloco em planta, fiada a fiada: peças sobrepostas (na parede e entre paredes), lacunas, cortes < 5 cm, juntas a prumo.
+17. **Alterações de projeto** (`alteracoes.py`, arquivo `obras/<obra>/alteracoes.json`): decisões do cliente aplicadas sobre a leitura do PDF, a cada leitura.
+    - Hoje: `remover_paredes`, por regra (ambientes dos dois lados, com porta, comprimento máximo) ou por `ids`.
+    - Sai a parede com os vãos e as etiquetas dela; a faixa de piso vai metade para cada ambiente e a divisa vira contorno aberto.
+    - As paredes vizinhas têm o encontro recalculado; a área esperada passa a ser o rótulo + o acréscimo.
+    - Tudo fica registrado em `alteracoes` no `obra.json` e numa linha da aba Conferência.
 ## Limitações conhecidas
 
 - Depende de PDF vetorial com camadas no padrão do CAD (nomes AIA: `A-WALL`, `A-DOOR`…). PDF escaneado não funciona.

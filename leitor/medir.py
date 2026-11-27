@@ -39,6 +39,7 @@ from leitor import saida_orcamento as SORC     # noqa: E402
 from leitor import escada as ESC               # noqa: E402
 from leitor import repeticao as REP            # noqa: E402
 from leitor import conferencia as CONF         # noqa: E402
+from leitor import alteracoes as ALT           # noqa: E402
 from dataclasses import replace as dc_replace  # noqa: E402
 from shapely.geometry import Polygon as _Poly   # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
@@ -240,6 +241,13 @@ def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
         for vv in pw["vaos"]:
             x = por_id.get(vv["vao"], {})
             vv.update(altura_m=x.get("altura_m"), peitoril_m=x.get("peitoril_m"))
+    # alterações de projeto decididas pelo cliente (obras/<obra>/alteracoes.json)
+    tmp = {"vistas": vistas_out, "paredes": paredes_out, "vaos": vaos_out, "ambientes": ambientes_out, "esquadrias": esquadrias_out}
+    registro_alt = ALT.aplicar(tmp, ALT.carregar(saida.parent))
+    paredes_out, vaos_out = tmp["paredes"], tmp["vaos"]
+    if registro_alt:
+        print(f"alterações de projeto: {len(registro_alt)} paredes removidas "
+              f"({sum(len(r['vaos']) for r in registro_alt)} vãos, {sum(len(r['etiquetas']) for r in registro_alt)} etiquetas)")
     # ajustes manuais de classificação (baixados da página paredes.html)
     arq_aj = saida.parent / "ajustes_paredes.json"
     if arq_aj.exists():
@@ -262,7 +270,7 @@ def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
     dados = {"obra": obra, "documento": pdf.name, "gerado_em": date.today().isoformat(),
              "vistas": vistas_out, "ambientes": ambientes_out, "esquadrias": esquadrias_out, "vaos": vaos_out,
              "paredes": paredes_out, "muros_inclinados": muros_incl, "cobertura_pdf": COB.ler_cobertura(paginas),
-             "escadas": escadas_out,
+             "escadas": escadas_out, "alteracoes": registro_alt,
              "premissas": {"pe_direito_m": pd, "fonte_pe_direito": fontes,
                            "altura_padrao_m": Q.PADRAO_ALTURA, "varanda": PREMISSA_VARANDA}}
     dados["quantitativos"] = Q.calcular(dados, pd)
