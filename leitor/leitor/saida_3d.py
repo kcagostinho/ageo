@@ -77,6 +77,8 @@ def montar(dados: dict) -> dict:
         return {"c": _r(sum(d.values()), 2), "cx": [[i, _r(x, 2)] for i, x in sorted(d.items(), key=lambda kv: -kv[1]) if x >= 0.005]}
 
     andares = []
+    esc_vista = {e["vista"]: e for e in dados.get("escadas", [])}
+    pegada_ant = None                                  # projeção da escada do andar de baixo (furo nesta laje)
     for ordem, v in enumerate(vistas):
         m = v["m_por_pt"]
         ambs = [(i, a) for i, a in enumerate(dados["ambientes"]) if a["vista"] == v["id"] and a["poligono"]]
@@ -157,11 +159,42 @@ def montar(dados: dict) -> dict:
                 return any(e.distance(meio) < 0.35 for e in eixos)
             par_out[:] = [x for x in par_out if not picado(x)]
 
-        # laje: contorno do andar (ambientes + paredes), com furo no elevador e na escada
+        # escada que sobe deste andar: degraus, patamar e corrimãos (altura do espelho = desnível ÷ nº de espelhos)
+        esc = esc_vista.get(v["id"])
+        pegada, escada_out = None, None
+        if esc and esc.get("sobe") and esc.get("degraus"):
+            prox = nomes[ordem + 1] if ordem + 1 < len(nomes) else None
+            dz = (z[prox] - z[v["titulo"]]) if prox else pd.get(v["titulo"], 2.6) + laje
+            hh = dz / esc["n_espelhos"]
+            pegada = Polygon([conv(q) for q in esc["pegada"]]).buffer(0)
+            escada_out = {"h": _r(hh, 4), "N": esc["n_espelhos"], "dz": _r(dz, 3), "destino": prox, "ambiente": esc["ambiente"],
+                          "lances": len(esc["lances"]), "piso": esc["piso_m"], "largura": esc["largura_m"], "anot": esc.get("anotacoes") or {},
+                          "degraus": [[k, [conv(q) for q in pol]] for k, pol in esc["degraus"]],
+                          "patamares": [[k, [conv(q) for q in pol]] for k, pol in esc["patamares"]],
+                          "corrimaos": [{"a": conv(c["a"]), "b": conv(c["b"]), "z0": c["z0"], "z1": c["z1"], "dentro": c["dentro"]}
+                                        for c in esc["corrimaos"]]}
+        # piso do ambiente da escada: só a parte em nível (sem os lances deste andar e o vão da escada de baixo)
+        corte_esc = [g for g in (pegada, pegada_ant) if g is not None and not g.is_empty]
+        if corte_esc:
+            for x in amb_out:
+                if not x["nome"].lower().startswith("escada"):
+                    continue
+                resto = Polygon(x["poly"], x["furos"]).buffer(0).difference(shapely.union_all(corte_esc))
+                partes = [g for g in getattr(resto, "geoms", [resto]) if g.geom_type == "Polygon" and g.area > 0.05]
+                if partes:
+                    g = max(partes, key=lambda q: q.area).simplify(0.005)
+                    x["poly"] = [[_r(a), _r(b)] for a, b in g.exterior.coords][:-1]
+                    x["furos"] = [[[_r(a), _r(b)] for a, b in h.coords][:-1] for h in g.interiors]
+                    rp = g.representative_point()
+                    x["rot"] = [_r(rp.x), _r(rp.y)]
+        # laje: contorno do andar (ambientes + paredes), com furo no elevador e sobre os lances da escada de baixo
         corpo = shapely.union_all([g for _, g in polys_m if not g.is_empty] + caixas).buffer(0.03, join_style="mitre").buffer(-0.03, join_style="mitre")
-        furos_laje = [g for n, g in polys_m if n == "Elevador" or n.lower().startswith("escada")]
-        if ordem != i_ter and ordem > 0:
-            corpo = corpo.difference(shapely.union_all(furos_laje)) if furos_laje else corpo
+        furos_laje = [g for n, g in polys_m if n == "Elevador"]
+        if ordem != i_ter and ordem > 0 and furos_laje:
+            corpo = corpo.difference(shapely.union_all(furos_laje))
+        if ordem > 0 and pegada_ant is not None:
+            corpo = corpo.difference(pegada_ant)
+        pegada_ant = pegada
         laje_out = []
         for g in getattr(corpo, "geoms", [corpo]):
             if g.geom_type != "Polygon" or g.area < 1:
@@ -212,7 +245,7 @@ def montar(dados: dict) -> dict:
             ps = [p for p in dados["paredes"] if p["vista"] == v["id"]]
             pag = {"familia": familia, "linhas": pl, "graute": [conv((x, y)) + [k] for x, y, k in pontos_verticais_xy(ps, m)]}
         andares.append({"id": v["id"], "nome": v["titulo"], "ordem": ordem, "z": _r(z[v["titulo"]], 2), "pd": pdv, "pag": pag,
-                        "ambientes": amb_out, "paredes": par_out, "laje": laje_out,
+                        "ambientes": amb_out, "paredes": par_out, "laje": laje_out, "escada": escada_out,
                         "resumo": [[k, val.replace(",", "X").replace(".", ",").replace("X", ".")] for k, val in resumo]})
 
     # cobertura: um "andar" a mais sobre o último pavimento, alinhado pelo contorno da fachada
@@ -495,6 +528,24 @@ D.andares.forEach((A,ia)=>{
    arr.forEach(([x,y,z,a,w,h,t],i)=>{q.setFromAxisAngle(Y,a);M.compose(new THREE.Vector3(x,y,z),q,new THREE.Vector3(Math.max(w,0.01),Math.max(h,0.01),t));me.setMatrixAt(i,M)});
    me.instanceMatrix.needsUpdate=true;me.computeBoundingSphere();me.userData={esq:true};g.add(me);esq.push(me)});
  }
+ // escada: cada piso é um bloco (espelho + 12 cm de laje por baixo), patamar com 12 cm; corrimão a 0,88 m e guarda-corpo a 1,10 m
+ const escM=[];
+ if(A.escada){const E=A.escada,h=E.h,esp=0.12,mE=mat({color:0xC9C4B8});mE.userData.base=0xC9C4B8;
+  const bloco=(poly,z0,z1)=>{const s=new THREE.Shape(poly.map(p=>new THREE.Vector2(p[0],-p[1])));
+   const geo=new THREE.ExtrudeGeometry(s,{depth:Math.max(z1-z0,0.01),bevelEnabled:false});geo.rotateX(-Math.PI/2);
+   const me=new THREE.Mesh(geo,mE);me.position.y=z0;me.userData={tipo:"esc",E,A,mat:mE};g.add(me);escM.push(me);pick.push(me)};
+  E.degraus.forEach(([k,poly])=>bloco(poly,Math.max(0,(k-1)*h-esp),k*h));
+  E.patamares.forEach(([k,poly])=>bloco(poly,k*h-esp,k*h));
+  const pecas_=[];const add=(a,b)=>pecas_.push([a,b]);
+  E.corrimaos.forEach(c=>{const za=c.z0*h,zb=c.z1*h,P=(t,y)=>[c.a[0]+(c.b[0]-c.a[0])*t,za+(zb-za)*t+y,c.a[1]+(c.b[1]-c.a[1])*t];
+   add(P(0,0.88),P(1,0.88));
+   if(c.dentro){add(P(0,1.10),P(1,1.10));const L=Math.hypot(c.b[0]-c.a[0],c.b[1]-c.a[1]),n=Math.max(2,Math.round(L/0.28));
+    for(let i=0;i<=n;i++){const t=(i+0.5)/(n+1),q=P(t,0);add([q[0],q[1]-0.02,q[2]],[q[0],q[1]+1.10,q[2]])}}});
+  const im=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),mat({color:0x3B3D40}),pecas_.length),M=new THREE.Matrix4(),X=new THREE.Vector3(1,0,0);
+  pecas_.forEach(([a,b],i)=>{const va=new THREE.Vector3(...a),vb=new THREE.Vector3(...b),d=vb.clone().sub(va),L=d.length();
+   M.compose(va.clone().add(vb).multiplyScalar(0.5),new THREE.Quaternion().setFromUnitVectors(X,d.normalize()),new THREE.Vector3(L,0.035,0.035));im.setMatrixAt(i,M)});
+  im.instanceMatrix.needsUpdate=true;im.computeBoundingSphere();g.add(im);escM.push(im);
+ }
  // cobertura: telhados (fibrocimento i=10%), calhas, laje e reservatórios da caixa d'água
  if(A.cob){
   const listras=()=>{const cv=document.createElement("canvas");cv.width=64;cv.height=8;const c=cv.getContext("2d");c.fillStyle="#D3D0C8";c.fillRect(0,0,64,8);
@@ -512,7 +563,7 @@ D.andares.forEach((A,ia)=>{
    corp.position.set(x,A.cob.z_laje_res+A.cob.h_res/2,z);g.add(corp);
    const tampa=new THREE.Mesh(new THREE.SphereGeometry(r*0.94,28,8,0,Math.PI*2,0,Math.PI/2),mat({color:0x2F6DB5}));tampa.scale.y=0.22;tampa.position.set(x,A.cob.z_laje_res+A.cob.h_res,z);g.add(tampa)});
  }
- andares.push({g,A,mats,ambs,paredes,pecas,grauteM,esq,rotulos:null});
+ andares.push({g,A,mats,ambs,paredes,pecas,grauteM,esq,escM,rotulos:null});
 });
 
 // ---------- estado e interface
@@ -617,6 +668,7 @@ function legenda(){
 function limparSel(){
  if(!S.sel)return;const s=S.sel;
  if(s.tipo==="par"){const u=s.obj.userData,[ini,n]=u.faixas[s.ip],c=s.obj.geometry.attributes.color,col=corDe(u,s.ip);for(let k=ini;k<ini+n;k++)c.setXYZ(k,...col);c.needsUpdate=true}
+ if(s.tipo==="esc"){s.mat.color.setHex(s.mat.userData.base)}
  if(s.tipo==="lin"){s.F.pecas.forEach(me=>{const u=me.userData,col=new THREE.Color();for(let i=0;i<u.linha.length;i++)if(u.linha[i]===s.il){col.setRGB(u.base[i*3],u.base[i*3+1],u.base[i*3+2]);me.setColorAt(i,col)}me.instanceColor.needsUpdate=true})}
  S.sel=null;
 }
@@ -643,6 +695,15 @@ function selecionar(hit){
   el("info").innerHTML=`<h3>Parede (paginação) · ${esc(u.A.nome)}</h3><div class="big">${esc(L.id)} · ${esc(L.tipo)}</div>
   <div class="mut">${nf(L.comp/100)} m pelo eixo · ${L.f.length} fiadas · pontas ${esc(L.pontas.join(" / "))}${L.nseg>1?` · ${L.nseg} trechos colineares`:""}${L.fachada?" · fachada":""}</div>
   <table style="margin-top:6px">${linhas}</table><div style="margin-top:8px;overflow-x:auto">${elevacao(L)}</div>`;
+ }else if(u.tipo==="esc"){const E=u.E;u.mat.color.setHex(SEL);S.sel={tipo:"esc",obj:o,mat:u.mat};
+  const bl=(2*E.h+E.piso)*100,pt=E.patamares.map(([k])=>`${k}º espelho (+${nf(k*E.h)} m)`).join(", ")||"—",an=E.anot||{};
+  el("info").innerHTML=`<h3>Escada · ${esc(u.A.nome)}</h3><div class="big">${esc(E.ambiente)}</div><div class="mut">sobe para ${esc(E.destino||"—")} · ${E.lances} lances</div><table>
+  <tr><td class="k">Desnível (cortes)</td><td>${nf(E.dz)} m</td></tr><tr><td class="k">Espelhos</td><td>${E.N} × ${nf(E.h*100,1)} cm</td></tr>
+  <tr><td class="k">Piso (pisada)</td><td>${nf(E.piso*100,0)} cm</td></tr><tr><td class="k">Largura do lance</td><td>${nf(E.largura)} m</td></tr>
+  <tr><td class="k">Patamar</td><td>${esc(pt)}</td></tr><tr><td class="k">Blondel (2e + p)</td><td>${nf(bl,1)} cm</td></tr>
+  ${an.espelho_m?`<tr><td class="k">Anotado na planta</td><td>e = ${nf(an.espelho_m*100,0)} cm${an.piso_m?` · p = ${nf(an.piso_m*100,0)} cm`:""}${an.largura_m?` · L = ${nf(an.largura_m)} m`:""}</td></tr>`:""}</table>
+  <div class="mut" style="margin-top:6px">Espelho calculado pelo desnível dos cortes ÷ nº de espelhos.${an.espelho_m&&Math.abs(an.espelho_m*E.N-E.dz)>0.03?` A planta anota ${nf(an.espelho_m*100,0)} cm (${E.N} × ${nf(an.espelho_m*100,0)} = ${nf(an.espelho_m*E.N)} m), diferente do corte: conferir com o arquiteto.`:""}
+  ${bl<63||bl>64?` NBR 9077 pede 63 a 64 cm na fórmula de Blondel e espelho de 16 a 18 cm: conferir.`:""}</div>`;
  }else if(u.tipo==="amb"){const a=u.a;S.sel={tipo:"amb",obj:o};
   el("info").innerHTML=`<h3>Ambiente · ${esc(u.A.nome)}</h3><div class="big">${esc(a.nome)}</div><div class="mut">${esc(a.unidade||NOME_AMB[a.tipo]||"")}</div><table>
   <tr><td class="k">Área medida</td><td>${nf(a.area)} m² (rótulo ${nf(a.rotulo)} m², ${a.dif==null?"—":(a.dif>0?"+":"")+nf(a.dif,1)+"%"})</td></tr>

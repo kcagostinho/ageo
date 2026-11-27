@@ -48,6 +48,7 @@ Saídas em `--saida`:
     - telas nos encontros vedação × estrutural e encunhamento;
     - fundo preparador + gesso por dentro, cerâmica das áreas molhadas e pintura projetada na fachada, varandas e platibanda.
 13. **Cobertura e muros inclinados** (`cobertura.py`): parapeito, platibanda, águas do telhado (hachura `A-ROOF-PATT`), calhas e reservatórios da planta de cobertura; muros inclinados por pares de linhas paralelas de `A-WALL`.
+15. **Escadas** (`escada.py`): a numeração dos degraus dentro do ambiente "Escada…" dá os lances (números seguidos e alinhados), a profundidade do piso e o sentido de subida; o último número de um lance seguido de outro vira patamar; o maior número é a chegada no andar de cima. A largura vem das paredes (ou da metade da distância entre lances). O 3D desenha degraus, patamar, corrimão e guarda-corpo com o espelho = desnível dos cortes ÷ nº de espelhos.
 14. **Orçamento — B4** (`orcamento.py`, `sinapi.py`, `cub.py`, `saida_orcamento.py`):
     - baixa o SINAPI do mês na Caixa (só SP fica em `obras/_sinapi/`) e o CUB do SindusCon-SP;
     - material contado na paginação × insumo SINAPI; mão de obra da alvenaria tirada da composição SINAPI; graute, armação e revestimentos por composição completa;

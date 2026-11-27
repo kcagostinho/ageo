@@ -24,6 +24,11 @@ Status em 27/11/2026: **3D-1 a 3D-4 feitas.**
     - 4 reservatórios de 5.000 L, contados pelo texto da planta e localizados pelos círculos tracejados.
   - Muros: os inclinados agora entram. Os do térreo têm 2,20 m; os do subsolo ficam "a definir".
   - Corte vertical (transversal ou longitudinal) com controle de posição, somado ao corte horizontal.
+  - Escada enclausurada (`leitor/leitor/escada.py`), lida da numeração dos degraus da planta:
+    - em U, 2 lances, patamar no 9º espelho, piso 28 cm, largura 1,20 m, corrimão a 0,88 m e guarda-corpo a 1,10 m;
+    - espelho = desnível dos cortes ÷ 18 (15,3 cm nos tipos; 16,4 cm do térreo ao 1º);
+    - o piso do ambiente fica só na parte em nível, e a laje de cima tem furo apenas sobre os lances;
+    - pontos a conferir com o arquiteto: a planta anota e = 16 cm (18 × 16 = 2,88 m), mas o corte dá 2,75 m entre pisos; Blondel 2e + p = 58,6 cm (a NBR 9077 pede 63 a 64 cm).
 - Gerador: `leitor/leitor/saida_3d.py`; saída `modelo3d.html`, arquivo único de ~1,5 MB que funciona sem internet.
 - three.js 0.160 com OrbitControls, num pacote embutido em `leitor/leitor/vendor` (licença MIT).
 - Decisões aplicadas: arquivo HTML; térreo e subsolo incluídos; muros escondidos por padrão.

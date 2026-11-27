@@ -36,6 +36,8 @@ from leitor import sinapi as SIN               # noqa: E402
 from leitor import cub as CUB                  # noqa: E402
 from leitor import orcamento as ORC            # noqa: E402
 from leitor import saida_orcamento as SORC     # noqa: E402
+from leitor import escada as ESC               # noqa: E402
+from shapely.geometry import Polygon as _Poly   # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
 from leitor.esquadrias import ler_esquadrias   # noqa: E402
 from leitor.ingestao import extrair            # noqa: E402
@@ -64,6 +66,7 @@ def _trecho_de_muro_inclinado(p: dict, eixos: list, m: float) -> bool:
 def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
     paginas = extrair(pdf, cache_dir=saida.parent / "_cache")
     vistas_out, ambientes_out, esquadrias_out, vaos_out, paredes_out, muros_incl = [], [], [], [], [], []
+    escadas_out = []
     for pag in paginas:
         for v in encontrar_vistas(pag):
             cal = calibrar(pag, v.caixa)
@@ -124,6 +127,11 @@ def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
                     "status": a.status, "observacao": a.observacao,
                     "poligono": a.poligono, "furos": a.furos, "rotulo_xy": [round(x, 2) for x in a.rotulo_xy],
                 })
+            # escada: degraus, patamar e corrimão lidos da numeração dos pisos (para o 3D)
+            for a in ambs:
+                if a.poligono and a.nome.lower().startswith("escada"):
+                    g = ESC.ler(pag, a.poligono, m) or {"sobe": False}
+                    escadas_out.append({"vista": vid, "ambiente": a.nome, "anotacoes": ESC.anotacoes(pag, _Poly(a.poligono)), **g})
             for e in esqs:
                 esquadrias_out.append({"vista": vid, "pavimento": v.titulo, "tipo": e.tipo,
                                        "largura_m": e.largura_m, "altura_m": e.altura_m,
@@ -172,6 +180,7 @@ def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
     dados = {"obra": obra, "documento": pdf.name, "gerado_em": date.today().isoformat(),
              "vistas": vistas_out, "ambientes": ambientes_out, "esquadrias": esquadrias_out, "vaos": vaos_out,
              "paredes": paredes_out, "muros_inclinados": muros_incl, "cobertura_pdf": COB.ler_cobertura(paginas),
+             "escadas": escadas_out,
              "premissas": {"pe_direito_m": pd, "fonte_pe_direito": fontes,
                            "altura_padrao_m": Q.PADRAO_ALTURA, "varanda": PREMISSA_VARANDA}}
     dados["quantitativos"] = Q.calcular(dados, pd)
