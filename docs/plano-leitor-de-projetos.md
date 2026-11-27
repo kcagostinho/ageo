@@ -38,7 +38,7 @@ Status: rascunho de planejamento · 27/11/2026
 2. **Todo número tem fonte:** prancha + coordenada, memorial + página, ou premissa aprovada por você.
 3. **Nada é suposto em silêncio.** O que faltar vira lacuna. "Prática" só entra se você aprovar como premissa.
 4. **Conferência visual sempre.** Cada ambiente medido aparece desenhado sobre a planta.
-5. **Começar pequeno.** Primeiro o arquitetônico de uma obra que já foi orçada à mão. Só depois as outras disciplinas.
+5. **Começar pequeno.** Primeiro o arquitetônico de uma obra-piloto, conferido contra os rótulos e o quadro de áreas. Só depois as outras disciplinas.
 
 ---
 
@@ -157,12 +157,13 @@ Status: rascunho de planejamento · 27/11/2026
 
 | Fase | Entrega | Pronto quando |
 |---|---|---|
-| **0. Gabarito e insumos** | Uma obra **já orçada à mão** escolhida como gabarito, com todos os arquivos (DWG, PDFs, memorial, quadro de esquadrias); checklist de acabamentos e modelo de EAP escritos | Pasta da obra organizada e `config/` preenchido |
-| **1. Leitura e medição** | Ingestão (PDF/DXF), escala, ambientes, áreas e perímetros, conferência com rótulos, visualizador simples, `medicao.xlsx` | Na obra-gabarito, pelo menos 90% dos ambientes detectados sozinhos e 100% dentro de ±2% do rótulo depois das correções |
+| **0. Gabarito e insumos** | Uma obra-piloto com todos os PDFs (arquitetônico, memorial, quadro de esquadrias). Como não há orçamento manual, a conferência usa os **rótulos de área do arquiteto**, o **quadro de áreas** e 3 a 5 ambientes medidos por você. Checklist de acabamentos e modelo de EAP escritos | Pasta da obra organizada e `config/` preenchido |
+| **1. Leitura e medição** | Ingestão do PDF, escala, ambientes, áreas e perímetros, conferência com rótulos e quadro de áreas, visualizador simples, `medicao.xlsx` | Pelo menos 90% dos ambientes detectados sozinhos e 100% dentro de ±2% do rótulo depois das correções; soma das áreas bate com o quadro de áreas |
+| **1b. Estimativa CUB** | Área equivalente (NBR 12721) × CUB do padrão da obra + itens que o CUB não cobre | Primeiro custo de obra no simulador e referência para conferir o SINAPI |
 | **2. Especificações e lacunas** | Matriz ambiente × serviço com fonte, lista de lacunas com severidade, relatório para o projetista, pinos no visualizador | O agente encontra as lacunas que você já conhece e você concorda com pelo menos 80% das que ele marca |
-| **3. EAP vinculada** | `eap.xlsx` com fórmulas ligadas à medição e abas de premissas e lacunas | Os quantitativos principais (piso, parede, forro, esquadrias) batem com o orçamento manual do gabarito, ou cada diferença tem explicação |
-| **4. Mais disciplinas** | Esquadrias completas; pontos elétricos e hidráulicos (contagem de blocos no DWG); estrutural (tabelas de aço e volumes de concreto, que costumam estar em texto) | Por disciplina, com o mesmo critério de gabarito |
-| **5. Preço e viabilidade** | Itens ligados a composições (SINAPI-SP ou próprias) + BDI, que dão o custo de obra e a curva mensal levados ao simulador AGEO; modo "ao vivo" opcional | O simulador ganha "custo de obra" vindo do leitor |
+| **3. EAP vinculada** | `eap.xlsx` com fórmulas ligadas à medição e abas de premissas e lacunas | Os quantitativos principais (piso, parede, forro, esquadrias) batem com a conferência manual dos ambientes-amostra |
+| **4. Mais disciplinas** | Esquadrias completas; hidrossanitário e elétrico (contagem de pontos e metragem de tubulação por símbolo e legenda). Estrutural fica **paramétrico** (índices de concreto e aço por m², marcados como premissa) até haver projeto | Contagens conferidas com a legenda de cada prancha |
+| **5. Orçamento SINAPI** | Itens da EAP ligados a composições SINAPI-SP (o Claude sugere o código, você aprova) + BDI, dando o custo de obra e a curva mensal levados ao simulador AGEO; modo "ao vivo" opcional | Total SINAPI comparado com a estimativa CUB e diferenças explicadas |
 
 ---
 
@@ -240,12 +241,16 @@ leitor-projetos/                 ← repositório privado separado (recomendado)
 
 ---
 
-## 9. Decisões em aberto
+## 9. Decisões
 
-1. **Formato:** em que formato os projetos chegam? DWG, PDF exportado do CAD ou PDF escaneado?
-2. **Gabarito:** existe uma obra já orçada à mão (com quantitativos) para usar como referência?
-3. **Disciplinas e saída:** começar só pelo arquitetônico? A meta final é EAP com quantitativos ou orçamento com preço?
-4. **Onde roda:** qual o sistema operacional do computador onde ficam os arquivos e onde o Claude Code vai rodar?
-5. **Repositório:** separado e privado (recomendado) ou dentro deste repositório do simulador?
+**Tomadas (27/11/2026):**
+1. **Formato:** PDF exportado do CAD (vetorial). O caminho principal é o PyMuPDF; DWG fica opcional.
+2. **Gabarito:** não há obra orçada à mão. O levantamento é justamente a base do orçamento automatizado. A conferência usa rótulos, quadro de áreas, amostras manuais e o CUB como referência de ordem de grandeza.
+3. **Orçamento:** SINAPI (detalhado) + CUB (paramétrico, para conferência e estimativa rápida).
+4. **Disciplinas:** todos os projetos disponíveis, exceto o estrutural. Começar pelo **arquitetônico**.
 
-**Próximo passo sugerido:** mandar uma prancha de planta baixa (PDF e, se houver, o DWG) da obra-gabarito para começar a Fase 1. O primeiro passo é um script que extrai textos e linhas e um visualizador para conferirmos juntos.
+**Ainda em aberto:**
+- **Onde roda:** qual o sistema operacional do computador onde ficam os arquivos e onde o Claude Code vai rodar?
+- **Repositório:** separado e privado (recomendado) ou dentro deste repositório do simulador?
+
+**Próximo passo:** receber o PDF da planta baixa arquitetônica de um pavimento (com o quadro de áreas, se estiver em outra prancha) e o memorial descritivo, e rodar a Fase 1: extrair textos e linhas, calibrar a escala e desenhar os ambientes para conferência.
