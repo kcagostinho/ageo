@@ -76,6 +76,28 @@ def montar(dados: dict) -> dict:
             return {}
         return {"c": _r(sum(d.values()), 2), "cx": [[i, _r(x, 2)] for i, x in sorted(d.items(), key=lambda kv: -kv[1]) if x >= 0.005]}
 
+    # instalações (água fria): coordenadas no sistema do 1º pavimento (os tipos são cópias alinhadas) -> modelo
+    hid = (dados.get("hidraulica") or {}).get("agua_fria")
+    hid_out, hid_por_pav = None, {}
+    if hid:
+        v1 = next((v for v in dados["vistas"] if v["titulo"] == "1ºPavimento"), None)
+        el1 = v1 and next((a for a in dados["ambientes"] if a["vista"] == v1["id"] and a["nome"] == "Elevador" and a["poligono"]), None)
+        if el1:
+            m1, c1 = v1["m_por_pt"], Polygon(el1["poligono"]).centroid
+            cvh = lambda x, y: (_r(x * m1 - c1.x * m1), _r(y * m1 - c1.y * m1))
+            lista = []
+            for i, t in enumerate(hid["trechos"]):
+                lista.append([t["id"], t["col"], t["pav"], t["dn"], t["L"], t["origem"], t.get("eixo") or "", t.get("como") or ""])
+                hid_por_pav.setdefault(t["pav"], {"t": [], "c": []})["t"].append(
+                    [*cvh(*t["a"][:2]), t["a"][2], *cvh(*t["b"][:2]), t["b"][2], t["dn"], i])
+            for c in hid["conexoes"]:
+                hid_por_pav.setdefault(c["pav"], {"t": [], "c": []})["c"].append([*cvh(*c["p"][:2]), c["p"][2], int(c["cod"]), c["col"]])
+            tab = hid.get("tabela_projetista") or {}
+            cod = {k: v[0]["descricao"] for k, v in {**tab.get("conexoes", {}), **tab.get("registros", {})}.items() if v}
+            hid_out = {"trechos": lista, "cod": cod, "tab": {str(k): v for k, v in (tab.get("tubos") or {}).items()},
+                       "curtos": [[t["col"], t["pav"], t["dn"], t["L"]] for t in hid.get("curtos", [])],
+                       "colunas": [[c["id"], *cvh(*c["xy"])] for c in hid["colunas"]], "pdf": hid.get("pdf"),
+                       "escopo": hid.get("escopo") or "colunas dos apartamentos (1º ao 5º pavimento)"}
     andares = []
     esc_vista = {e["vista"]: e for e in dados.get("escadas", [])}
     pegada_ant = None                                  # projeção da escada do andar de baixo (furo nesta laje)
@@ -250,7 +272,18 @@ def montar(dados: dict) -> dict:
                            "cont": cont, "f": [[[_r(u, 1), _r(w, 1), COD.get(t, 0)] for u, w, t in fiada] for fiada in x["fiadas"]]})
             ps = [p for p in dados["paredes"] if p["vista"] == v["id"]]
             pag = {"familia": familia, "linhas": pl, "graute": [conv((x, y)) + [k] for x, y, k in pontos_verticais_xy(ps, m)]}
-        andares.append({"id": v["id"], "nome": v["titulo"], "ordem": ordem, "z": _r(z[v["titulo"]], 2), "pd": pdv, "pag": pag,
+        hp = hid_por_pav.get(v["titulo"])
+        hid_andar = None
+        if hp:
+            zz = z[v["titulo"]]
+            # [x, altura acima do piso do andar, profundidade] como o three.js (y para cima)
+            hid_andar = {"t": [[a, _r(c - zz), b, d, _r(f - zz), e, dn, i] for a, b, c, d, e, f, dn, i in hp["t"]],
+                         "c": [[a, _r(c - zz), b, k, col] for a, b, c, k, col in hp["c"]]}
+            tot = {}
+            for x in hp["t"]:
+                tot[x[6]] = tot.get(x[6], 0) + hid["trechos"][x[7]]["L"]
+            resumo.append(["Água fria (tubos, colunas dos aptos)", " · ".join(f"DN{k} {val:,.2f} m" for k, val in sorted(tot.items()))])
+        andares.append({"id": v["id"], "nome": v["titulo"], "ordem": ordem, "z": _r(z[v["titulo"]], 2), "pd": pdv, "pag": pag, "hid": hid_andar,
                         "ambientes": amb_out, "paredes": par_out, "laje": laje_out, "escada": escada_out,
                         "resumo": [[k, val.replace(",", "X").replace(".", ",").replace("X", ".")] for k, val in resumo]})
 
@@ -339,7 +372,7 @@ def montar(dados: dict) -> dict:
                  "areas": {k: _r(v, 2) for k, v in orc["areas"].items()},
                  "cub": cub and {"padrao": cub["padrao"], "mes": cub["mes"], "valor": cub["valor"], "ref": _r(cub["custo_ref"], 2)}}
     return {"obra": dados["obra"], "doc": dados["documento"], "gerado": dados["gerado_em"], "andares": andares, "resumoObra": obra,
-            "orc": orc3d}
+            "orc": orc3d, "hid": hid_out}
 
 
 def gerar(dados: dict, destino: Path):
@@ -421,6 +454,9 @@ const RAMPA=[[0,[0.96,0.92,0.80]],[0.35,[0.93,0.70,0.25]],[0.7,[0.80,0.25,0.17]]
 function rampa(t){t=Math.max(0,Math.min(1,t));for(let i=1;i<RAMPA.length;i++){const [a,ca]=RAMPA[i-1],[b,cb]=RAMPA[i];if(t<=b){const u=(t-a)/(b-a);return ca.map((x,k)=>x+(cb[k]-x)*u)}}return RAMPA[RAMPA.length-1][1]}
 // custo de cada andar (paredes + ambientes), usado no mapa "por andar"
 D.andares.forEach(A=>{A.custo=A.paredes.reduce((s,p)=>s+(p.c||0),0)+A.ambientes.reduce((s,a)=>s+(a.c||0),0)});
+const COR_DN={20:0x7FC8F8,25:0x2E86C1,32:0x1B4F9C,40:0x17A589,50:0x0B3D6B},OD_DN={20:0.020,25:0.025,32:0.032,40:0.040,50:0.050};
+const raioDN=dn=>Math.max((OD_DN[dn]||0.025)*0.8,0.014);
+const COR_REG=0xC0392B,COR_CON=0x5D6D7E;
 const COR_PECA={0:0xD9D6CC,1:0xB4AE9E,2:0x8E7CC3,3:0xE08A1E,4:0xF2B24C,5:0x262626,6:0x8F8A80};
 const COR_PECA_VED={0:0xB9CFE4,1:0x8EAFCF,3:0xE08A1E,4:0xF2B24C,5:0x262626,6:0x8F8A80};
 const NOME_PECA=[["inteiro 14×19×39",0xD9D6CC],["meio 14×19×19",0xB4AE9E],["amarração 34/54",0x8E7CC3],["canaleta J (cinta fachada)",0xE08A1E],
@@ -552,6 +588,20 @@ D.andares.forEach((A,ia)=>{
    M.compose(va.clone().add(vb).multiplyScalar(0.5),new THREE.Quaternion().setFromUnitVectors(X,d.normalize()),new THREE.Vector3(L,0.035,0.035));im.setMatrixAt(i,M)});
   im.instanceMatrix.needsUpdate=true;im.computeBoundingSphere();g.add(im);escM.push(im);
  }
+ // água fria: tubos (cilindros por DN) e conexões/registros
+ const hidM=[];
+ if(A.hid){const cil=new THREE.CylinderGeometry(1,1,1,12),M=new THREE.Matrix4(),Yv=new THREE.Vector3(0,1,0),porDN={};
+  A.hid.t.forEach(r=>{(porDN[r[6]]=porDN[r[6]]||[]).push(r)});
+  Object.entries(porDN).forEach(([dn,arr])=>{const rr=raioDN(+dn),me=new THREE.InstancedMesh(cil,mat({color:COR_DN[dn]||0x2E86C1}),arr.length),ids=new Int32Array(arr.length);
+   arr.forEach((r,i)=>{const a=new THREE.Vector3(r[0],r[1],r[2]),b=new THREE.Vector3(r[3],r[4],r[5]),d=b.clone().sub(a),L=Math.max(d.length(),0.004);
+    M.compose(a.clone().add(b).multiplyScalar(0.5),new THREE.Quaternion().setFromUnitVectors(Yv,d.normalize()),new THREE.Vector3(rr,L,rr));me.setMatrixAt(i,M);ids[i]=r[7]});
+   me.instanceMatrix.needsUpdate=true;me.computeBoundingSphere();me.userData={tipo:"hid",ids,A,raio:rr};me.visible=false;g.add(me);hidM.push(me);pick.push(me)});
+  const sph=new THREE.SphereGeometry(1,12,8);
+  [[A.hid.c.filter(c=>c[3]<70),COR_CON,0.024],[A.hid.c.filter(c=>c[3]>=70),COR_REG,0.034]].forEach(([arr,cor,r])=>{if(!arr.length)return;
+   const me=new THREE.InstancedMesh(sph,mat({color:cor}),arr.length);
+   arr.forEach((c,i)=>{M.compose(new THREE.Vector3(c[0],c[1],c[2]),new THREE.Quaternion(),new THREE.Vector3(r,r,r));me.setMatrixAt(i,M)});
+   me.instanceMatrix.needsUpdate=true;me.computeBoundingSphere();me.userData={tipo:"con",arr,A,raio:r};me.visible=false;g.add(me);hidM.push(me);pick.push(me)});
+ }
  // cobertura: telhados (fibrocimento i=10%), calhas, laje e reservatórios da caixa d'água
  if(A.cob){
   const listras=()=>{const cv=document.createElement("canvas");cv.width=64;cv.height=8;const c=cv.getContext("2d");c.fillStyle="#D3D0C8";c.fillRect(0,0,64,8);
@@ -569,19 +619,20 @@ D.andares.forEach((A,ia)=>{
    corp.position.set(x,A.cob.z_laje_res+A.cob.h_res/2,z);g.add(corp);
    const tampa=new THREE.Mesh(new THREE.SphereGeometry(r*0.94,28,8,0,Math.PI*2,0,Math.PI/2),mat({color:0x2F6DB5}));tampa.scale.y=0.22;tampa.position.set(x,A.cob.z_laje_res+A.cob.h_res,z);g.add(tampa)});
  }
- andares.push({g,A,mats,ambs,paredes,pecas,grauteM,esq,escM,rotulos:null});
+ andares.push({g,A,mats,ambs,paredes,pecas,grauteM,esq,escM,hidM,rotulos:null});
 });
 
 // ---------- estado e interface
-const S={andar:-1,modo:"paredes",filt:{"estrutural":true,"vedação":true,"a definir":true,"concreto":true,"muro":false,"ext":true,"int":true,"laje":true,"cintas":false,"graute":true,"esq":true},explode:0,corte:false,alt:1.2,cortev:false,eixov:"x",posv:0.5,sel:null,metrica:"parede"};
+const S={andar:-1,modo:"paredes",filt:{"estrutural":true,"vedação":true,"a definir":true,"concreto":true,"muro":false,"ext":true,"int":true,"laje":true,"cintas":false,"graute":true,"esq":true,"agua":false},explode:0,corte:false,alt:1.2,cortev:false,eixov:"x",posv:0.5,sel:null,metrica:"parede"};
 const el=id=>document.getElementById(id);
 function chips(id,itens,ativo,cb,cls=""){const r=el(id);r.innerHTML="";itens.forEach(([v,t,cor])=>{const b=document.createElement("button");b.className="chip "+cls;
  b.innerHTML=(cor!=null?`<i style="background:#${cor.toString(16).padStart(6,"0")}"></i>`:"")+esc(t);b.setAttribute("aria-pressed",ativo(v));b.onclick=()=>{cb(v);atualizar()};r.appendChild(b)})}
 function ui(){
  chips("andares",[[-1,"Todos"],...D.andares.map((A,i)=>[i,A.nome.replace("Pavimento ","").replace("ºPavimento","º pav.")])],v=>v===S.andar,v=>{S.andar=v;S.sel=null;enquadrar(false)});
- chips("modos",[["paredes","Paredes"],["paginacao","Paginação (blocos)"],["ambientes","Ambientes"],...(D.orc?[["custo","Custo (B4)"]]:[])],v=>v===S.modo,v=>{S.modo=v;if(S.sel)limparSel()});
+ chips("modos",[["paredes","Paredes"],["paginacao","Paginação (blocos)"],["ambientes","Ambientes"],...(D.orc?[["custo","Custo (B4)"]]:[]),...(D.hid?[["inst","Instalações"]]:[])],v=>v===S.modo,v=>{S.modo=v;if(S.sel)limparSel()});
  const fs=[["estrutural","Estrutural",COR_PAREDE["estrutural"]],["vedação","Vedação",COR_PAREDE["vedação"]],["a definir","A definir",COR_PAREDE["a definir"]],
   ["concreto","Pilares/concreto",COR_PAREDE["concreto"]],["muro","Muros",COR_PAREDE["muro"]],["ext","Externas"],["int","Internas"],["laje","Lajes"],["esq","Esquadrias",0x9CC8E8]];
+ if(D.hid&&S.modo!=="inst")fs.push(["agua","Água fria",COR_DN[25]]);
  if(S.modo==="paginacao")fs.splice(5,0,["cintas","Destacar cintas, vergas e contravergas",0xF2B24C],["graute","Pontos de graute",0x1F4E8C]);
  chips("filtros",fs,v=>S.filt[v],v=>S.filt[v]=!S.filt[v],"f");
 }
@@ -594,13 +645,16 @@ function atualizar(){
   const blocos=S.modo==="paginacao"&&F.pecas.length>0;
   F.paredes.forEach(me=>{const u=me.userData;me.visible=S.filt[u.tipoParede]!==false&&S.filt[u.fachada?"ext":"int"]
     &&!(blocos&&(u.tipoParede==="estrutural"||u.tipoParede==="vedação"));
-   me.material.transparent=abaixo||S.modo==="ambientes";me.material.opacity=abaixo?0.12:(S.modo==="ambientes"?0.18:1)});
+   const fantasma=S.modo==="ambientes"||S.modo==="inst";
+   me.material.transparent=abaixo||fantasma;me.material.opacity=abaixo?0.12:(S.modo==="inst"?0.07:(fantasma?0.18:1));me.material.depthWrite=!(abaixo||fantasma)});
+  F.hidM.forEach(me=>{me.visible=S.modo==="inst"||S.filt.agua;me.material.transparent=abaixo;me.material.opacity=abaixo?0.25:1});
   F.pecas.forEach(me=>{const u=me.userData;me.visible=blocos&&S.filt[u.tipoParede]!==false&&S.filt[u.fachada?"ext":"int"];
    const apagado=S.filt.cintas&&u.cat==="blo";me.material.transparent=abaixo||apagado;me.material.opacity=abaixo?0.12:(apagado?0.1:1);me.material.depthWrite=!(abaixo||apagado)});
   F.grauteM.forEach(me=>{me.visible=blocos&&S.filt.graute&&S.filt.estrutural});
-  F.esq.forEach(me=>{me.visible=S.filt.esq&&S.modo!=="ambientes"});
+  F.esq.forEach(me=>{me.visible=S.filt.esq&&S.modo!=="ambientes"&&S.modo!=="inst"});
   F.ambs.forEach(me=>{me.material.color.setHex(S.modo==="ambientes"||me===S.sel?.obj?(me===S.sel?.obj?SEL:COR_AMB[me.userData.a.tipo]):0xE4E1D8)});
-  F.g.children.forEach(c=>{if(c.userData.laje)c.visible=S.filt.laje});
+  F.g.children.forEach(c=>{if(c.userData.laje){c.visible=S.filt.laje;if(S.modo==="inst"&&!abaixo){c.material.transparent=true;c.material.opacity=0.3;c.material.depthWrite=false}
+   else if(!abaixo){c.material.transparent=false;c.material.opacity=1;c.material.depthWrite=true}}});
  });
  // corte horizontal no andar selecionado (ou no térreo em "Todos")
  const ref=ii>=0?andares[ii]:andares.find(F=>/t[ée]rreo/i.test(F.A.nome))||andares[0];
@@ -652,8 +706,20 @@ function resumoCusto(){
  const ok=Math.abs(soma-O.total)<1;
  h+=`<div class="mut" style="margin-top:6px">Soma dos elementos no modelo: ${brl(soma)} ${ok?"= total do orçamento ✓":"(difere do orçamento)"}</div>`;
  return h}
+function resumoHid(){
+ const H=D.hid,tot={},n={};let L0=0;
+ const ok=t=>S.andar<0||t[2]===D.andares[S.andar].nome;
+ H.trechos.forEach(t=>{if(!ok(t))return;tot[t[3]]=(tot[t[3]]||0)+t[4];n[t[3]]=(n[t[3]]||0)+1});
+ H.curtos.forEach(t=>{if(S.andar>=0&&t[1]!==D.andares[S.andar].nome)return;tot[t[2]]=(tot[t[2]]||0)+t[3]});
+ const dns=Object.keys(tot).map(Number).sort((a,b)=>a-b),soma=dns.reduce((s,k)=>s+tot[k],0);
+ let h=`<h3>Água fria · ${S.andar<0?"prédio":esc(D.andares[S.andar].nome)}</h3><div class="big">${nf(soma)} m de tubo</div><div class="mut">${esc(H.escopo)} · cada tubo uma vez (rótulo repetido no mesmo tubo conta uma vez)</div><table style="margin-top:6px">`;
+ h+=dns.map(k=>`<tr><td class="k"><i style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;background:#${(COR_DN[k]||0).toString(16).padStart(6,"0")}"></i>DN${k}</td><td>${nf(tot[k])} m${S.andar<0&&H.tab[k]!=null?` <span class="mut">(tabela do projetista, prédio todo: ${nf(H.tab[k])} m)</span>`:""}</td></tr>`).join("")+"</table>";
+ const cs={};D.andares.forEach((A,i)=>{if(!A.hid||(S.andar>=0&&i!==S.andar))return;A.hid.c.forEach(c=>{const k=String(c[3]).padStart(2,"0");cs[k]=(cs[k]||0)+1})});
+ const ks=Object.keys(cs).sort();if(ks.length)h+=`<h3 style="margin-top:10px">Conexões e registros</h3><table>`+ks.map(k=>`<tr><td class="k">${esc(k)} · ${esc(H.cod[k]||"")}</td><td>${cs[k]}</td></tr>`).join("")+"</table>";
+ return h}
 function resumo(){
  if(S.modo==="custo"&&D.orc){el("resumo").innerHTML=resumoCusto();return}
+ if(S.modo==="inst"&&D.hid){el("resumo").innerHTML=resumoHid();return}
  if(S.andar>=0){const A=D.andares[S.andar];el("resumo").innerHTML=`<h3>${esc(A.nome)} · pé-direito ${nf(A.pd)} m · nível ${nf(A.z)} m</h3><table>`+A.resumo.map(([k,v])=>`<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")+"</table>"}
  else el("resumo").innerHTML=`<h3>Obra · principais insumos (família 39)</h3><table>`+D.resumoObra.map(([k,v])=>`<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")+"</table>";
 }
@@ -665,6 +731,9 @@ function legenda(){
    <div style="margin-top:6px"><i style="display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px;background:rgb(${SEMCUSTO.map(x=>Math.round(x*255)).join(",")})"></i>sem custo na B4 (concreto, muros, subsolo)</div>
    <div class="mut" style="margin-top:6px">Clique numa parede ou num ambiente para ver de onde vem o custo. Escala do 2º ao 98º percentil.</div>`;
   const s=el("metrica");s.value=S.metrica;s.onchange=e=>{S.metrica=e.target.value;atualizar()};return}
+ if(S.modo==="inst"){el("legenda").innerHTML="<h3>Legenda</h3>"+[...Object.entries(COR_DN).map(([k,c])=>["DN"+k,c]),["conexão",COR_CON],["registro",COR_REG]]
+  .map(([t,c])=>`<span style="display:inline-flex;align-items:center;margin:0 10px 4px 0"><i style="display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;background:#${c.toString(16).padStart(6,"0")}"></i>${esc(t)}</span>`).join("")
+  +`<div class="mut" style="margin-top:6px">Posição: coluna pelo balão da planta, ramal ao longo da parede pela planta e alturas pelo isométrico de cada prumada (cotas de piso). Diâmetro do tubo engrossado para aparecer. Paredes em transparência.</div>`;return}
  const it=S.modo==="ambientes"?Object.entries(COR_AMB).map(([k,c])=>[NOME_AMB[k],c]):S.modo==="paginacao"?NOME_PECA:Object.entries(COR_PAREDE).map(([k,c])=>[k,c]);
  el("legenda").innerHTML="<h3>Legenda</h3>"+it.map(([t,c])=>`<span style="display:inline-flex;align-items:center;margin:0 10px 4px 0"><i style="display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;background:#${c.toString(16).padStart(6,"0")}"></i>${esc(t)}</span>`).join("")
   +(S.modo==="paginacao"?'<div class="mut" style="margin-top:6px">Blocos do 1º ao 5º pavimento (família 39). Térreo e subsolo continuam como volume "a definir".</div>':"")
@@ -675,6 +744,7 @@ function limparSel(){
  if(!S.sel)return;const s=S.sel;
  if(s.tipo==="par"){const u=s.obj.userData,[ini,n]=u.faixas[s.ip],c=s.obj.geometry.attributes.color,col=corDe(u,s.ip);for(let k=ini;k<ini+n;k++)c.setXYZ(k,...col);c.needsUpdate=true}
  if(s.tipo==="esc"){s.mat.color.setHex(s.mat.userData.base)}
+ if(s.tipo==="hidsel"){s.hl.parent&&s.hl.parent.remove(s.hl);s.hl.material.dispose()}
  if(s.tipo==="lin"){s.F.pecas.forEach(me=>{const u=me.userData,col=new THREE.Color();for(let i=0;i<u.linha.length;i++)if(u.linha[i]===s.il){col.setRGB(u.base[i*3],u.base[i*3+1],u.base[i*3+2]);me.setColorAt(i,col)}me.instanceColor.needsUpdate=true})}
  S.sel=null;
 }
@@ -710,6 +780,20 @@ function selecionar(hit){
   ${an.espelho_m?`<tr><td class="k">Anotado na planta</td><td>e = ${nf(an.espelho_m*100,0)} cm${an.piso_m?` · p = ${nf(an.piso_m*100,0)} cm`:""}${an.largura_m?` · L = ${nf(an.largura_m)} m`:""}</td></tr>`:""}</table>
   <div class="mut" style="margin-top:6px">Espelho calculado pelo desnível dos cortes ÷ nº de espelhos.${an.espelho_m&&Math.abs(an.espelho_m*E.N-E.dz)>0.03?` A planta anota ${nf(an.espelho_m*100,0)} cm (${E.N} × ${nf(an.espelho_m*100,0)} = ${nf(an.espelho_m*E.N)} m), diferente do corte: conferir com o arquiteto.`:""}
   ${bl<63||bl>64?` NBR 9077 pede 63 a 64 cm na fórmula de Blondel e espelho de 16 a 18 cm: conferir.`:""}</div>`;
+ }else if(u.tipo==="hid"||u.tipo==="con"){const M=new THREE.Matrix4();o.getMatrixAt(hit.instanceId,M);
+  const hl=new THREE.Mesh(o.geometry,new THREE.MeshBasicMaterial({color:SEL,depthTest:false,transparent:true,opacity:0.9}));
+  const p=new THREE.Vector3(),q=new THREE.Quaternion(),e=new THREE.Vector3();M.decompose(p,q,e);
+  if(u.tipo==="hid")e.set(e.x*1.7,e.y,e.z*1.7);else e.multiplyScalar(1.5);hl.position.copy(p);hl.quaternion.copy(q);hl.scale.copy(e);hl.renderOrder=20;
+  o.parent.add(hl);S.sel={tipo:"hidsel",obj:o,hl};
+  if(u.tipo==="hid"){const T=D.hid.trechos[u.ids[hit.instanceId]];const [id,col,pav,dn,L,orig,eixo,como]=T;
+   el("info").innerHTML=`<h3>Água fria · ${esc(pav)}</h3><div class="big">Tubo DN${dn} · ${nf(L)} m</div><div class="mut">${esc(id)} · coluna ${esc(col)} · ${eixo==="v"?"vertical":"horizontal"}</div><table>
+   <tr><td class="k">Diâmetro</td><td>DN${dn} mm (PVC soldável marrom)</td></tr><tr><td class="k">Comprimento</td><td>${nf(L)} m (rótulo do projeto)</td></tr>
+   ${(()=>{const r=u.A.hid.t.find(x=>x[7]===u.ids[hit.instanceId]);if(!r)return "";const a=Math.min(r[1],r[4]),b=Math.max(r[1],r[4]);
+    return `<tr><td class="k">Altura do piso</td><td>${Math.abs(b-a)<0.01?nf(a):nf(a)+" a "+nf(b)} m</td></tr>`})()}
+   <tr><td class="k">Fonte</td><td>${esc(orig)}</td></tr><tr><td class="k">Rótulo ligado por</td><td>${como==="chamada"?"linha de chamada":"proximidade"}</td></tr></table>`}
+  else{const c=u.arr[hit.instanceId],k=String(c[3]).padStart(2,"0");
+   el("info").innerHTML=`<h3>Água fria · ${esc(u.A.nome)}</h3><div class="big">${c[3]>=70?"Registro":"Conexão"} ${esc(k)}</div><div class="mut">coluna ${esc(c[4])}</div><table>
+   <tr><td class="k">Peça (tabela do projeto)</td><td>${esc(D.hid.cod[k]||"—")}</td></tr><tr><td class="k">Altura</td><td>${nf(c[1])} m do piso</td></tr></table>`}
  }else if(u.tipo==="amb"){const a=u.a;S.sel={tipo:"amb",obj:o};
   el("info").innerHTML=`<h3>Ambiente · ${esc(u.A.nome)}</h3><div class="big">${esc(a.nome)}</div><div class="mut">${esc(a.unidade||NOME_AMB[a.tipo]||"")}</div><table>
   <tr><td class="k">Área medida</td><td>${nf(a.area)} m² (rótulo ${nf(a.rotulo)} m², ${a.dif==null?"—":(a.dif>0?"+":"")+nf(a.dif,1)+"%"})</td></tr>
@@ -742,10 +826,11 @@ canvas.addEventListener("pointerdown",e=>{down=[e.clientX,e.clientY]});
 canvas.addEventListener("pointerup",e=>{if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>6)return;
  const r=canvas.getBoundingClientRect();ptr.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);ray.setFromCamera(ptr,camera);
  const alvo=pick.filter(o=>{let p=o;while(p){if(!p.visible)return false;p=p.parent}const ia=o.parent.userData.ia;
-  if(S.andar>=0&&ia!==S.andar)return false;if(o.userData.tipo==="par"&&S.modo==="ambientes")return false;
+  if(S.andar>=0&&ia!==S.andar)return false;if(o.userData.tipo==="par"&&(S.modo==="ambientes"||S.modo==="inst"))return false;
+  if(S.modo==="inst"&&(o.userData.tipo==="amb"||o.userData.tipo==="esc"))return false;
   if(o.userData.tipo==="pec"&&S.filt.cintas&&o.userData.cat==="blo")return false;return true});
  const hs=ray.intersectObjects(alvo,false).filter(h=>(!S.corte||h.point.y<=plano.constant+1e-3)&&planoV.distanceToPoint(h.point)>=-1e-3);
- if(hs.length)selecionar(hs[0]);else{limparSel();el("info").innerHTML='<h3>Seleção</h3><div class="mut">Toque ou clique num ambiente ou numa parede.</div>';atualizar()}});
+ if(hs.length)selecionar(hs[0]);else{limparSel();el("info").innerHTML='<h3>Seleção</h3><div class="mut">Toque ou clique num ambiente, numa parede ou num tubo.</div>';atualizar()}});
 // ---------- câmera
 function caixaVisivel(){const b=new THREE.Box3();andares.forEach((F,i)=>{if(S.andar<0||i===S.andar)b.expandByObject(F.g)});return b}
 function enquadrar(anim,vista="iso"){

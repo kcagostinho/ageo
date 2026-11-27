@@ -6,17 +6,19 @@ Plano completo em [`../docs/plano-leitor-de-projetos.md`](../docs/plano-leitor-d
 ```bash
 pip install -r requirements.txt
 python medir.py caminho/projeto.pdf --obra "Nome da obra" --saida obras/<obra>/saida
+# com o projeto de água fria (isométricos de prumada + plantas):
+python medir.py caminho/projeto.pdf --obra "Nome da obra" --saida obras/<obra>/saida --agua-fria caminho/agua_fria.pdf
 ```
 
 Saídas em `--saida`:
 
 | Arquivo | Conteúdo |
 |---|---|
-| `medicao.xlsx` | **Orçamento da alvenaria e dos revestimentos (B4, SINAPI)**, preços e custo por pavimento; insumos (B3); paginação; paredes; resumo por pavimento; **quantitativos por ambiente** (piso, teto, rodapé, parede bruta/líquida) e resumo por tipo de ambiente; ambientes (rótulo × medida); esquadrias; premissas (pé-direito editável); calibração |
+| `medicao.xlsx` | **Orçamento da alvenaria e dos revestimentos (B4, SINAPI)**, preços e custo por pavimento; insumos (B3); paginação; paredes; resumo por pavimento; **água fria** (tubos por DN × tabela do projetista, por coluna e andar, trecho a trecho com a parede onde passa, e como foi lido); **quantitativos por ambiente** (piso, teto, rodapé, parede bruta/líquida) e resumo por tipo de ambiente; ambientes (rótulo × medida); esquadrias; premissas (pé-direito editável); calibração |
 | `conferencia.html` | Prancha com cada ambiente desenhado e colorido pelo status, para conferência visual |
 | `paredes.html` | Modelo de paredes: cada parede com eixo e espessura, colorida por tipo (estrutural, vedação…). Clique para reclassificar e baixe os ajustes |
 | `paginacao.html` | Paginação estimada: elevação de cada parede bloco a bloco, famílias 29 e 39, com comparação de peças e cortes |
-| `modelo3d.html` | Modelo 3D (three.js embutido): andares alinhados pelo núcleo, paredes por tipo com vãos, ambientes clicáveis, **paginação em blocos 3D** (cintas, vergas, contravergas e pontos de graute em destaque), esquadrias, lajes, cobertura com telhados e reservatórios, muros, filtros, cortes horizontal e vertical, resumo por andar e **mapa de calor do custo (B4)** |
+| `modelo3d.html` | Modelo 3D (three.js embutido): andares alinhados pelo núcleo, paredes por tipo com vãos, ambientes clicáveis, **paginação em blocos 3D** (cintas, vergas, contravergas e pontos de graute em destaque), esquadrias, lajes, cobertura com telhados e reservatórios, muros, filtros, cortes horizontal e vertical, resumo por andar, **mapa de calor do custo (B4)** e modo **Instalações** (água fria: tubos por DN, conexões e registros, clique com DN, comprimento e prancha de origem) |
 | `obra.json` | Tudo acima com os polígonos, para as próximas fases (lacunas, EAP) |
 
 ## Como mede
@@ -82,6 +84,21 @@ Saídas em `--saida`:
     - Sai a parede com os vãos e as etiquetas dela; a faixa de piso vai metade para cada ambiente e a divisa vira contorno aberto.
     - As paredes vizinhas têm o encontro recalculado; a área esperada passa a ser o rótulo + o acréscimo.
     - Tudo fica registrado em `alteracoes` no `obra.json` e numa linha da aba Conferência.
+18. **Água fria** (`hidraulica.py`, `saida_hidraulica.py`, opção `--agua-fria`). O PDF hidráulico não tem camadas: tudo é traço de 0,15 pt e os tubos são polígonos pretos. A leitura é pela imagem.
+    - **Tubos**: render em cinza → abertura morfológica (some texto, cota e linha fina) → esqueleto → trechos retos. Cada rótulo "DNxx mm / L,LLm" vai para o tubo pela linha de chamada, ou pelo mais perto sem aceitar um tubo bem maior que o rótulo. Cada código de conexão (círculo) vai para a ponta de tubo mais perto.
+    - **Isométrico de prumada** (um por coluna: banheiro, cozinha, varanda): é uma elevação oblíqua em escala.
+      - As cotas de altura ("0,20", "1,40"…) dão a escala e o piso de cada andar. O tique de baixo é o piso, conferido com os níveis da arquitetura.
+      - O eixo horizontal sai com outra escala (0,95 a 1,07): é calibrado pelo tubo da planta.
+      - Rótulo repetido no mesmo tubo (a coluna entre andares aparece nos dois andares) conta uma vez.
+      - Tubo desenhado sem rótulo num andar recebe o DN e o comprimento do mesmo tubo em outro andar (marcado "inferido").
+    - **Plantas**: registradas sobre as paredes do modelo por votação das linhas (escala e deslocamento).
+      - O balão "AF-xx" com a chamada até a marca preta dá o ponto da coluna. A mediana entre os andares é a prumada.
+      - O tubo da planta dá a direção do ramal em cada andar.
+    - **Auditoria**: cada trecho é localizado na parede (estrutural ou vedação) e no ambiente. Conta como conflito:
+      - tubo horizontal embutido em parede estrutural;
+      - tubo vertical em ponto de graute;
+      - tubo na altura de verga ou contraverga.
+    - Por enquanto entram as colunas dos apartamentos. Barrilete, alimentação, extravasor, térreo e subsolo são a próxima etapa (`../docs/plano-hidrossanitario.md`).
 ## Limitações conhecidas
 
 - Depende de PDF vetorial com camadas no padrão do CAD (nomes AIA: `A-WALL`, `A-DOOR`…). PDF escaneado não funciona.

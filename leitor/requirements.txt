@@ -3,3 +3,4 @@ shapely>=2.0
 numpy>=1.26
 openpyxl>=3.1
 pillow>=10
+scikit-image>=0.24

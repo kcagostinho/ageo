@@ -210,6 +210,10 @@ def checar(dados: dict) -> list[tuple[str, str, str, bool]]:
                         f"+{sum(sum(r['piso_acrescido_m2'].values()) for r in rs):.2f} m² de piso".replace(".", ","), True))
     ms = {round(v["m_por_pt"], 9) for v in vistas}
     out.append(("Escala", "Escala única do documento", f"{len(ms)} escala(s) em {len(vistas)} vistas", len(ms) == 1))
+    af = (dados.get("hidraulica") or {}).get("agua_fria")
+    if af:
+        from .hidraulica import conferir
+        out += conferir(af)
     return out
 
 

@@ -40,6 +40,8 @@ from leitor import escada as ESC               # noqa: E402
 from leitor import repeticao as REP            # noqa: E402
 from leitor import conferencia as CONF         # noqa: E402
 from leitor import alteracoes as ALT           # noqa: E402
+from leitor import hidraulica as HID           # noqa: E402
+from leitor import saida_hidraulica as SHID    # noqa: E402
 from dataclasses import replace as dc_replace  # noqa: E402
 from shapely.geometry import Polygon as _Poly   # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
@@ -544,9 +546,11 @@ def planilha(dados: dict, destino: Path):
         SINS.aba(wb, dados["insumos"], _cabecalho)
     if dados.get("orcamento"):
         SORC.abas(wb, dados, _cabecalho)
+    SHID.abas(wb, dados, _cabecalho)
     CONF.aba(wb, CONF.checar(dados), _cabecalho)
     ordem_abas = ["Leia-me", "Conferência", "Resumo", "Orçamento (B4)", "Insumos (B3)", "Preços (B4)", "Custo por pavimento (B4)", "Resumo quantitativos", "Resumo paredes", "Paginação", "Quantitativos", "Paredes",
-                  "Paginação por parede", "Ambientes", "Esquadrias", "Premissas", "Calibração"]
+                  "Paginação por parede", "Ambientes", "Esquadrias", "Água fria", "Água fria por coluna", "Água fria trechos",
+                  "Água fria leitura", "Premissas", "Calibração"]
     ordem_abas = [n for n in ordem_abas if n in wb.sheetnames]
     wb._sheets = [wb[n] for n in ordem_abas]
     wb.save(destino)
@@ -704,9 +708,20 @@ def main():
     ap.add_argument("--sinapi", help="mês de referência do SINAPI, AAAA-MM (padrão: o último publicado)")
     ap.add_argument("--desonerado", action="store_true", default=None, help="usar preços com desoneração")
     ap.add_argument("--sem-preco", action="store_true", help="não gerar o orçamento (B4)")
+    ap.add_argument("--agua-fria", type=Path, help="PDF do projeto de água fria (isométricos de prumada e plantas)")
     a = ap.parse_args()
     a.saida.mkdir(parents=True, exist_ok=True)
     dados = medir(a.pdf, a.saida, a.obra, a.familia)
+    if a.agua_fria:
+        print("água fria:", a.agua_fria.name)
+        af = HID.ler_agua_fria(a.agua_fria, dados, log=print)
+        dados["hidraulica"] = {"agua_fria": af}
+        q = Counter()
+        for t in af["trechos"] + af["curtos"]:
+            q[t["dn"]] += t["L"]
+        au = af["auditoria"]["resumo"]
+        print("água fria: " + ", ".join(f"DN{k} {v:.2f} m" for k, v in sorted(q.items())) +
+              f" · {len(af['conexoes'])} conexões/registros · {au['conflitos']} conflitos com a alvenaria")
     if not a.sem_preco:
         try:
             orc = orcamento(dados, a.saida, a.sinapi, a.desonerado)
