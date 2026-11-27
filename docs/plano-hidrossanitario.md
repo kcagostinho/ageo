@@ -217,6 +217,5 @@ Os isométricos são perspectivas de verdade: os ramais correm em duas direçõe
 ### Pontos para o projetista (esgoto)
 
 1. **Banheiro do tipo D:** faltam rótulos (um trecho do tubo de queda e dois DN40 de 0,12 m) que existem nos outros tipos.
-2. **Tabela de conexões:** a "Junção Simples 75 × 75" (código 14) aparece como 75 × 50 em algumas notas. Conferir qual é.
-3. **Shaft dos tubos de queda:** os TQ DN75/100 ficam no ambiente, junto à parede. Indicar o fechamento (shaft/enchimento) no arquitetônico.
-4. **Rótulos repetidos e coletores desenhados em várias vistas:** como na água fria, somar o desenho dá mais que a tabela.
+2. **Shaft dos tubos de queda:** os TQ DN75/100 ficam no ambiente, junto à parede. Indicar o fechamento (shaft/enchimento) no arquitetônico.
+3. **Rótulos repetidos e coletores desenhados em várias vistas:** como na água fria, somar o desenho dá mais que a tabela.
