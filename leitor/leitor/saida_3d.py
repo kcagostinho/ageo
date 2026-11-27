@@ -108,15 +108,17 @@ def montar(dados: dict) -> dict:
                               f"altura por premissa ({t['altura']})"])
                 hid_por_pav.setdefault(t["pav"], {"t": [], "c": []})["t"].append([*cv(*t["a"][:2]), t["a"][2], *cv(*t["b"][:2]), t["b"][2], t["dn"], len(lista) - 1, 0])
             colxy = {c["id"]: c["xy"] for c in hid["colunas"]}
+            usados_ = set()
             longas = sorted((t for t in comp if t.get("como") == "coluna"), key=lambda t: (-t["dn"], -t["L"]))
             topo_res = hid["niveis"]["Cobertura"] + 1.35 + 1.60
             alvo = [("AL", 32, topo_res), ("EXTRAV.", 32, topo_res), ("AF-13", 25, hid["niveis"]["Cobertura"] + 0.10)]
             niv = sorted(hid["niveis"].items(), key=lambda kv: kv[1])
+            usados_ = set()                              # sem marcar os dados (montar pode rodar mais de uma vez)
             for nome, dn, topo in alvo:
-                t = next((x for x in longas if x["dn"] == dn and not x.get("_usado")), None)
+                t = next((x for x in longas if x["dn"] == dn and id(x) not in usados_), None)
                 if not t or nome not in colxy:
                     continue
-                t["_usado"] = True
+                usados_.add(id(t))
                 base = max(topo - t["L"], hid["niveis"].get("Sub-Solo", -2.75) + 0.20)
                 lista.append([nome, nome, "prédio", t["dn"], t["L"], t["origem"], "v", "coluna: posição pelo balão das plantas, extremos por premissa"])
                 x, y = cvh(*colxy[nome])
@@ -131,7 +133,7 @@ def montar(dados: dict) -> dict:
                        "curtos": [[t["col"], t["pav"], t["dn"], t["L"]] for t in hid.get("curtos", [])],
                        "colunas": [[c["id"], *cvh(*c["xy"])] for c in hid["colunas"]], "pdf": hid.get("pdf"),
                        "escopo": "prumadas dos apartamentos, barrilete, térreo, subsolo e colunas do prédio",
-                       "sempos": [[t["grupo"], t["pav"], t["dn"], t["L"], t["origem"]] for t in comp if not t.get("a") and not t.get("_usado")],
+                       "sempos": [[t["grupo"], t["pav"], t["dn"], t["L"], t["origem"]] for t in comp if not t.get("a") and id(t) not in usados_],
                        "codpl": (hid.get("complemento") or {}).get("codigos_plantas") or {},
                        "orc": hid.get("orcamento") and {"total": hid["orcamento"]["total"], "grupos": hid["orcamento"]["grupos"],
                                                         "mes": hid["orcamento"]["mes"], "custo": hid["orcamento"]["por_trecho"]}}
@@ -199,6 +201,24 @@ def montar(dados: dict) -> dict:
                              "tab": {str(k): v for k, v in ((es_h.get("tabela_projetista") or {}).get("tubos") or {}).items()},
                              "orc": o and {"total": o["total"], "grupos": o["grupos"], "mes": o["mes"]}, "pdf": es_h["pdf"],
                              "con": sum(es_h["conexoes"].values())}
+    # costura do 3D: liga as pontas soltas (só visual)
+    if hid_out and hid_por_pav:
+        from .rede3d import costurar
+        pontos_uso = [(c[0], c[1], c[2]) for v in hid_por_pav.values() for c in v.get("c", []) if c[3] in (9, 10)]
+        lst = hid_out["trechos"]
+
+        def terminal(sy, r, e):
+            P = (r[3 * e], r[3 * e + 1], r[3 * e + 2])
+            outra_z = r[3 * (1 - e) + 2]
+            ref = lst[r[7]]
+            if sy == 0:
+                if any(math.dist(P, q) < 0.06 for q in pontos_uso):
+                    return True
+                return ref[0] in ("AL", "EXTRAV.") and P[2] > outra_z          # topo no reservatório
+            if "subida" in (ref[5] or "") and P[2] > outra_z:                    # sobe ao aparelho
+                return True
+            return str(ref[1]).startswith(("TQ", "V")) and P[2] > outra_z        # ventilação acima do telhado
+        hid_out["costura"] = costurar(hid_por_pav, lst, terminal)
     andares = []
     esc_vista = {e["vista"]: e for e in dados.get("escadas", [])}
     pegada_ant = None                                  # projeção da escada do andar de baixo (furo nesta laje)
@@ -383,7 +403,7 @@ def montar(dados: dict) -> dict:
                          "p": [[a, _r(c - zz), b, tp, lado, dn] for a, b, c, tp, lado, dn in hp.get("p", [])]}
             tot = {}
             for x in hp["t"]:
-                if (x[8] if len(x) > 8 else 0) == 0:
+                if (x[8] if len(x) > 8 else 0) == 0 and hid_out["trechos"][x[7]][1] != "ligação":
                     tot[x[6]] = tot.get(x[6], 0) + hid_out["trechos"][x[7]][4] * (1 if hid_out["trechos"][x[7]][2] != "prédio" else 0)
             if tot:
                 resumo.append(["Água fria (tubos com posição)", " · ".join(f"DN{k} {val:,.2f} m" for k, val in sorted(tot.items()))])
@@ -458,7 +478,7 @@ def montar(dados: dict) -> dict:
                            "c": [[a, _r(c - zc), b, k, col] for a, b, c, k, col in hpc["c"]]}
                 tot = {}
                 for x in hpc["t"]:
-                    if hid_out["trechos"][x[7]][2] != "prédio" and (x[8] if len(x) > 8 else 0) == 0:
+                    if hid_out["trechos"][x[7]][2] != "prédio" and (x[8] if len(x) > 8 else 0) == 0 and hid_out["trechos"][x[7]][1] != "ligação":
                         tot[x[6]] = tot.get(x[6], 0) + hid_out["trechos"][x[7]][4]
                 resumo_c.append(["Água fria (barrilete, tubos com posição)", " · ".join(f"DN{k} {val:,.2f} m" for k, val in sorted(tot.items()))])
             andares.append({"id": "cobertura", "nome": "Cobertura", "ordem": len(andares), "z": zc, "pd": ALTURAS["platibanda_m"], "pag": None, "hid": hid_cob,
@@ -850,7 +870,7 @@ function resumoCusto(){
 function resumoHid(){
  const H=D.hid,tot={},n={};let L0=0;
  const ok=t=>S.andar<0||t[2]===D.andares[S.andar].nome;
- H.trechos.forEach(t=>{if(t[8]==="es"||!ok(t))return;tot[t[3]]=(tot[t[3]]||0)+t[4];n[t[3]]=(n[t[3]]||0)+1});
+ H.trechos.forEach(t=>{if(t[8]==="es"||t[1]==="ligação"||!ok(t))return;tot[t[3]]=(tot[t[3]]||0)+t[4];n[t[3]]=(n[t[3]]||0)+1});
  H.curtos.forEach(t=>{if(S.andar>=0&&t[1]!==D.andares[S.andar].nome)return;tot[t[2]]=(tot[t[2]]||0)+t[3]});
  let sp=0;(H.sempos||[]).forEach(t=>{if(S.andar>=0&&t[1]!==D.andares[S.andar].nome)return;tot[t[2]]=(tot[t[2]]||0)+t[3];sp+=t[3]});
  const dns=Object.keys(tot).map(Number).sort((a,b)=>a-b),soma=dns.reduce((s,k)=>s+tot[k],0);
@@ -933,7 +953,9 @@ function selecionar(hit){
   const p=new THREE.Vector3(),q=new THREE.Quaternion(),e=new THREE.Vector3();M.decompose(p,q,e);
   if(u.tipo==="hid")e.set(e.x*1.7,e.y,e.z*1.7);else e.multiplyScalar(1.5);hl.position.copy(p);hl.quaternion.copy(q);hl.scale.copy(e);hl.renderOrder=20;
   o.parent.add(hl);S.sel={tipo:"hidsel",obj:o,hl};
-  if(u.tipo==="hid"&&u.sys){const T=D.hid.trechos[u.ids[hit.instanceId]];const [id,col,pav,dn,L,orig,eixo,como]=T;
+  if(u.tipo==="hid"&&D.hid.trechos[u.ids[hit.instanceId]][1]==="ligação"){const [id,col,pav,dn,L,orig]=D.hid.trechos[u.ids[hit.instanceId]];
+   el("info").innerHTML=`<h3>${u.sys?"Esgoto":"Água fria"} · ${esc(pav)}</h3><div class="big">Ligação do 3D · DN${dn}</div><div class="mut">${nf(L)} m · ${esc(orig)}</div>`}
+  else if(u.tipo==="hid"&&u.sys){const T=D.hid.trechos[u.ids[hit.instanceId]];const [id,col,pav,dn,L,orig,eixo,como]=T;
    el("info").innerHTML=`<h3>Esgoto · ${esc(pav==="prédio"?"prédio":pav)}</h3><div class="big">${col==="ramal"?"Ramal":col==="coletor"?"Coletor":esc(col)} DN${dn}</div>
    <div class="mut">${esc(id)} · ${eixo==="v"?"vertical":"horizontal"} · ${nf(L)} m ${col==="ramal"?"desenhados na planta":""}</div><table>
    <tr><td class="k">Diâmetro</td><td>DN${dn} mm (PVC esgoto série normal)</td></tr><tr><td class="k">Fonte</td><td>${esc(orig)}</td></tr>

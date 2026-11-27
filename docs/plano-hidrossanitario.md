@@ -244,3 +244,28 @@ Os isométricos são perspectivas de verdade: os ramais correm em duas direçõe
   - DN40/50: até 0,50 m (lavatório, pia, tanque).
 - **Ponta junto do tubo de queda ou da ventilação:** vira ligação horizontal até a coluna, com a junção.
 - **Caixas sifonadas e ralos:** pelos quadrados da planta (8 por andar, nos banheiros), com a subida do ramal até a caixa. As caixas redondas da tabela não estão desenhadas como símbolo na planta dos andares e entram só no quantitativo.
+
+
+## 8. Costura do 3D e caminho para um BIM exato (27/11/2026)
+
+O 3D é reconstruído dos desenhos 2D, então sobravam pontas de tubo soltas:
+- a altura do barrilete, do térreo e dos coletores é premissa;
+- parte dos verticais só existe no isométrico, sem posição;
+- os ramais da planta do esgoto são interrompidos pelas conexões.
+
+A etapa `rede3d.costurar` (só visual) faz o seguinte:
+1. Junta as pontas a até 5 cm.
+2. Liga cada ponta solta ao tubo mais perto do mesmo sistema, com percurso ortogonal (até 60 cm na horizontal).
+3. Não mexe nos pontos de consumo, nas subidas aos aparelhos nem no topo das ventilações.
+
+| | Pontas soltas antes | Depois |
+|---|---|---|
+| Água fria | 238 | 5 |
+| Esgoto (fora as subidas aos aparelhos) | ~90 | 9 |
+
+As ligações aparecem como "Ligação do 3D" no clique e não entram no quantitativo nem no preço.
+
+**Para um 3D exato (BIM de verdade):**
+- Pedir ao projetista hidráulico o arquivo **IFC** do modelo (ou o arquivo nativo). As pranchas têm cara de software BIM de instalações, com tabelas de materiais geradas e vista "3D - Prédio".
+- No IFC, cada tubo e conexão vem com posição 3D, diâmetro e ligação real.
+- O leitor passaria a importar o IFC (biblioteca `ifcopenshell`) e manteria a conferência com as pranchas.

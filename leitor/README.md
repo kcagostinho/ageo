@@ -116,6 +116,10 @@ Saídas em `--saida`:
     - **Auditoria:** coluna dentro de parede onde não cabe; tubo de queda no ambiente, que pede shaft.
     - **Preço** (`orcamento_hid.calcular_esgoto`): SINAPI por DN e trecho (ramal de descarga, tubo de queda/ventilação, subcoletor), conexões pela descrição da tabela do projetista, caixas e ralos pela quantidade da tabela.
     - A aba "Instalações (B4)" soma água fria e esgoto.
+20. **Costura do 3D das instalações** (`rede3d.py`, só visual).
+    - Junta as pontas próximas e liga cada ponta solta ao tubo mais perto do mesmo sistema, com percurso ortogonal.
+    - Ficam de fora os pontos de consumo, as subidas aos aparelhos e o topo das ventilações.
+    - As ligações não entram no quantitativo nem no preço.
 ## Limitações conhecidas
 
 - Depende de PDF vetorial com camadas no padrão do CAD (nomes AIA: `A-WALL`, `A-DOOR`…). PDF escaneado não funciona.
