@@ -6,7 +6,10 @@
 > - ver paredes internas e externas;
 > - ver a alvenaria **bloco a bloco**.
 
-Status em 27/11/2026: **3D-1 feita.**
+Status em 27/11/2026: **3D-1 e 3D-2 feitas.**
+- 3D-2: modo "Paginação (blocos)" com cerca de 30 mil peças instanciadas (1º ao 5º, família 39).
+- Destaque de cintas, vergas e contravergas; 74 pontos de graute por pavimento.
+- Clique numa parede mostra a contagem por peça e a elevação 2D.
 - Gerador: `leitor/leitor/saida_3d.py`; saída `modelo3d.html`, arquivo único de ~950 KB que funciona sem internet.
 - three.js 0.160 com OrbitControls, num pacote embutido em `leitor/leitor/vendor` (licença MIT).
 - Decisões aplicadas: arquivo HTML; térreo e subsolo incluídos; muros escondidos por padrão; cobertura na 3D-3.

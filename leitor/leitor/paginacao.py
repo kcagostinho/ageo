@@ -279,21 +279,24 @@ def paginar_linha(L: dict, familia: str, pe_direito_m: float, prem=PREMISSAS, gu
     return cont, fiadas
 
 
-def paginar(dados: dict, familia: str, guardar_vista: str | None = None):
-    """Paginação de todas as linhas de parede, por pavimento. Devolve (contagem por pavimento, linhas)."""
+def paginar(dados: dict, familia: str, guardar_vista: str | None = None, guardar_todas: bool = False):
+    """Paginação de todas as linhas de parede, por pavimento. Devolve (contagem por pavimento, linhas).
+    As peças bloco a bloco são guardadas para a vista 'guardar_vista' (ou para todas, com guardar_todas)."""
     pd = dados["premissas"]["pe_direito_m"]
     m = {v["id"]: v["m_por_pt"] for v in dados["vistas"]}
     por_pav, detalhes = {}, []
     for v in dados["vistas"]:
         ps = [p for p in dados["paredes"] if p["vista"] == v["id"]]
         linhas = linhas_de_parede(ps, m[v["id"]])
+        guardar = guardar_todas or v["id"] == guardar_vista
         tot = Counter()
         for L in linhas:
-            cont, fiadas = paginar_linha(L, familia, pd.get(v["titulo"], 2.6), guardar=(v["id"] == guardar_vista))
+            cont, fiadas = paginar_linha(L, familia, pd.get(v["titulo"], 2.6), guardar=guardar)
             cont["linhas"] += 1
             tot.update(cont)
-            if v["id"] == guardar_vista:
+            if guardar:
                 detalhes.append({**{k: L[k] for k in ("id", "o", "tipo", "fachada", "ponta_a", "ponta_b", "ts", "segmentos")},
+                                 "vista": v["id"],
                                  "eixo": [L["ini"], L["c"], L["fim"], L["c"]] if L["o"] == "h" else [L["c"], L["ini"], L["c"], L["fim"]],
                                  "comprimento_cm": round(L["comprimento_cm"], 1), "fiadas": fiadas,
                                  "cortes": cont["cortes (peças)"], "contagem": dict(cont)})

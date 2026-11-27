@@ -33,6 +33,33 @@ P = {
 }
 
 
+def pontos_verticais_xy(paredes: list[dict], m_por_pt: float) -> list[tuple[float, float, str]]:
+    """Posição (pt) de cada ponto de graute vertical: encontros, pontas livres e laterais de vãos
+    (a 10 cm da borda do vão, dentro da parede). Mesma regra da contagem da B3."""
+    est = [p for p in paredes if p["tipo"] == "estrutural"]
+    nos = []
+    for p in est:
+        e = p["eixo"]
+        for lado, (x, y) in (("a", e[:2]), ("b", e[2:])):
+            for n in nos:
+                if abs(n["x"] - x) <= 4 and abs(n["y"] - y) <= 4:
+                    n["os"].add(p["o"]); n["tipos"].append(p["encontros"][lado]); break
+            else:
+                nos.append({"x": x, "y": y, "os": {p["o"]}, "tipos": [p["encontros"][lado]]})
+    pts = [(n["x"], n["y"], "encontro") for n in nos if len(n["os"]) == 2 or any(t in ("T", "X") for t in n["tipos"])]
+    pts += [(n["x"], n["y"], "ponta") for n in nos if n["tipos"] == ["livre"]]
+    off = 0.10 / m_por_pt
+    for p in est:
+        e = p["eixo"]
+        L = max(((e[2] - e[0]) ** 2 + (e[3] - e[1]) ** 2) ** 0.5, 1e-9)
+        ux, uy = (e[2] - e[0]) / L, (e[3] - e[1]) / L
+        for v in p["vaos"]:
+            for u in (v["inicio_m"] / m_por_pt - off, (v["inicio_m"] + v["largura_m"]) / m_por_pt + off):
+                u = min(max(u, 0), L)
+                pts.append((e[0] + ux * u, e[1] + uy * u, "vão"))
+    return pts
+
+
 def _pontos_verticais(paredes: list[dict], m_por_pt: float) -> tuple[int, int]:
     """Pontos de graute vertical nas paredes estruturais: encontros (L/T/X, contados uma vez),
     pontas livres e as duas laterais de cada vão. Devolve (pontos, encontros vedação×estrutural)."""
