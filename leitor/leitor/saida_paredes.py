@@ -80,7 +80,8 @@ def pagina(dados, pdf, destino):
     for v in dados["vistas"]:
         x0, y0, x1, y1 = v["caixa"]
         x0, y0, x1, y1 = x0 - 15, y0 - 15, x1 + 15, y1 + 15
-        pix = doc[v["pagina"] - 1].get_pixmap(matrix=pymupdf.Matrix(1.4, 1.4), clip=pymupdf.Rect(x0, y0, x1, y1),
+        ddx, ddy = v.get("desloc") or (0, 0)          # andar repetido: dados no sistema da referência
+        pix = doc[v["pagina"] - 1].get_pixmap(matrix=pymupdf.Matrix(1.4, 1.4), clip=pymupdf.Rect(x0 + ddx, y0 + ddy, x1 + ddx, y1 + ddy),
                                                colorspace=pymupdf.csGRAY)
         ps = []
         for pw in dados["paredes"]:

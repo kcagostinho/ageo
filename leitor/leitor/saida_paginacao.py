@@ -110,7 +110,8 @@ def pagina(dados, pdf, destino):
     doc = pymupdf.open(str(pdf))
     x0, y0, x1, y1 = v1["caixa"]
     x0, y0, x1, y1 = x0 - 15, y0 - 15, x1 + 15, y1 + 15
-    pix = doc[v1["pagina"] - 1].get_pixmap(matrix=pymupdf.Matrix(1.4, 1.4), clip=pymupdf.Rect(x0, y0, x1, y1), colorspace=pymupdf.csGRAY)
+    ddx, ddy = v1.get("desloc") or (0, 0)
+    pix = doc[v1["pagina"] - 1].get_pixmap(matrix=pymupdf.Matrix(1.4, 1.4), clip=pymupdf.Rect(x0 + ddx, y0 + ddy, x1 + ddx, y1 + ddy), colorspace=pymupdf.csGRAY)
     resumo = {}
     for fam in ("29", "39"):
         it = _itens(fam)

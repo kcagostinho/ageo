@@ -24,6 +24,11 @@ Saídas em `--saida`:
 1. **Ingestão** (`leitor/ingestao.py`): traços por camada do CAD (`A-WALL`, `A-DOOR`, `A-GLAZ`…) e textos com coordenadas.
 2. **Vistas** (`vistas.py`): separa as plantas de cada prancha e lê título e escala nominal.
 3. **Escala** (`escala.py`): compara o valor de cada cota com o comprimento desenhado. A escala nominal não é usada para medir (no projeto-piloto o PDF estava 1,6% menor que 1:50).
+   - **Escala única e pavimentos repetidos** (`repeticao.py`):
+     - todas as vistas usam a mesma escala: a mediana ponderada das calibrações. As cotas são arredondadas ao centímetro e, vista a vista, variam até 0,02%.
+     - Uma vista cujas linhas de parede coincidem com as de outra (≥ 98% a menos de 0,15 pt) é lida numa cópia da folha posicionada sobre ela. Cada ponto com par na referência (mesma camada) recebe a coordenada exata da referência.
+     - Andares iguais dão as mesmas áreas, paredes e paginação. O que muda de verdade (ex.: a escada do último andar) é lido do próprio andar.
+     - Os dados de um andar repetido ficam no sistema de coordenadas da referência; `desloc` na vista diz onde ele está na folha.
 4. **Ambientes** (`ambientes.py`): espaço livre entre paredes e esquadrias. Vãos de porta e janela fechados no alinhamento das faces da parede (pares de "tampas" de parede com porta, batente, vidro ou soleira entre elas). Folha de porta fechada como linha de apoio (`portas.py`). Faixas finas descartadas (miolo de parede, frestas). Linhas de piso só separam cômodos quando necessário.
 5. **Conferência**: cada polígono é comparado com a área escrita no rótulo do arquiteto (ok ≤ 2%, conferir ≤ 10%, divergente > 10%).
 6. **Esquadrias** (`esquadrias.py`): etiquetas `L x H` e peitoril.

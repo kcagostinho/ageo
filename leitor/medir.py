@@ -37,6 +37,8 @@ from leitor import cub as CUB                  # noqa: E402
 from leitor import orcamento as ORC            # noqa: E402
 from leitor import saida_orcamento as SORC     # noqa: E402
 from leitor import escada as ESC               # noqa: E402
+from leitor import repeticao as REP            # noqa: E402
+from dataclasses import replace as dc_replace  # noqa: E402
 from shapely.geometry import Polygon as _Poly   # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
 from leitor.esquadrias import ler_esquadrias   # noqa: E402
@@ -67,75 +69,101 @@ def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
     paginas = extrair(pdf, cache_dir=saida.parent / "_cache")
     vistas_out, ambientes_out, esquadrias_out, vaos_out, paredes_out, muros_incl = [], [], [], [], [], []
     escadas_out = []
+    # 1ª passada: calibra todas as vistas, fixa uma escala única por escala nominal e
+    # encaixa os pavimentos repetidos nas coordenadas do primeiro igual (ver repeticao.py)
+    lista = []
     for pag in paginas:
         for v in encontrar_vistas(pag):
-            cal = calibrar(pag, v.caixa)
-            m = cal.m_por_pt if cal else v.m_por_pt_nominal
-            vs: list = []
-            ctx: dict = {}
-            ambs = detectar(pag, v.caixa, m, v.titulo, vaos_saida=vs, contexto=ctx)
-            esqs = ler_esquadrias(pag, v.caixa)
-            if not ambs and not esqs:
-                continue
-            # áreas de terreno (locação) não são delimitadas por parede: ficam fora desta fase
-            if ambs and all(a.status in ("rotulos_juntos", "sem_poligono") for a in ambs):
-                continue
-            vid = f"p{pag.numero}-{len(vistas_out) + 1}"
-            for x in vs:
-                x.update(vista=vid, pavimento=v.titulo)
-            vaos_out.extend(vs)
-            vistas_out.append({
-                "id": vid, "pagina": pag.numero, "titulo": v.titulo, "escala_nominal": v.escala,
-                "caixa": [round(x, 2) for x in v.caixa],
-                "m_por_pt_nominal": v.m_por_pt_nominal,
-                "m_por_pt": m, "calibrada": bool(cal),
-                "n_cotas": cal.n_cotas if cal else 0, "dispersao_pct": cal.desvio_pct if cal else None,
+            lista.append([pag, v, calibrar(pag, v.caixa), None])
+    m_doc = REP.escala_unica([(v.m_por_pt_nominal, cal.m_por_pt if cal else None, cal.n_cotas if cal else 0) for _, v, cal, _ in lista])
+    refs = []
+    for item in lista:
+        pag, v = item[0], item[1]
+        orig, sig = REP.assinatura(pag, v.caixa)
+        T, ref = (0.0, 0.0), None
+        if len(sig) >= 50:
+            for pr, vr, origr, sigr in refs:
+                if REP.semelhanca(sig, sigr) >= 0.98:
+                    T, ref = (orig[0] - origr[0], orig[1] - origr[1]), (pr, vr)
+                    break
+            else:
+                refs.append((pag, v, orig, sig))
+        copia, caixa, _ = REP.copia_alinhada(pag, v.caixa, ref[0] if ref else None, ref[1].caixa if ref else None, T)
+        item[0], item[1] = copia, dc_replace(v, caixa=caixa)
+        item[3] = (ref[1].titulo if ref else None, T)
+    for pag, v, cal, (repete, desloc) in lista:
+        m_v = cal.m_por_pt if cal else None
+        m_d = m_doc.get(round(v.m_por_pt_nominal, 9))
+        if m_d and (m_v is None or abs(m_v / m_d - 1) < 0.003):
+            m = m_d
+        else:
+            m = m_v or v.m_por_pt_nominal
+        vs: list = []
+        ctx: dict = {}
+        ambs = detectar(pag, v.caixa, m, v.titulo, vaos_saida=vs, contexto=ctx)
+        esqs = ler_esquadrias(pag, v.caixa)
+        if not ambs and not esqs:
+            continue
+        # áreas de terreno (locação) não são delimitadas por parede: ficam fora desta fase
+        if ambs and all(a.status in ("rotulos_juntos", "sem_poligono") for a in ambs):
+            continue
+        vid = f"p{pag.numero}-{len(vistas_out) + 1}"
+        for x in vs:
+            x.update(vista=vid, pavimento=v.titulo)
+        vaos_out.extend(vs)
+        vistas_out.append({
+            "id": vid, "pagina": pag.numero, "titulo": v.titulo, "escala_nominal": v.escala,
+            "caixa": [round(x, 2) for x in v.caixa],
+            "m_por_pt_nominal": v.m_por_pt_nominal,
+            "m_por_pt": m, "m_por_pt_vista": m_v, "calibrada": bool(cal), "repete": repete,
+            "desloc": [round(desloc[0], 4), round(desloc[1], 4)],
+            "n_cotas": cal.n_cotas if cal else 0, "dispersao_pct": cal.desvio_pct if cal else None,
+        })
+        for x0, y0, x1, y1, t in COB.muros_inclinados(pag, v.caixa, m):
+            muros_incl.append({"vista": vid, "eixo": [round(x0, 2), round(y0, 2), round(x1, 2), round(y1, 2)], "espessura_m": round(t, 3)})
+        # modelo de paredes ("BIM de alvenaria")
+        ad = [{"nome": a.nome, "poligono": a.poligono, "furos": a.furos, "rotulo_xy": a.rotulo_xy,
+               "_rotulo": f"A{i:02d} · {a.nome}"} for i, a in enumerate(ambs)]
+        unidades = PAR.agrupar_unidades(ad, ctx["vaos"], m)
+        pws = PAR.extrair(ctx, ad, v.titulo, m, vid)
+        PAR.classificar(pws, unidades, tem_unidades=bool(unidades))
+        nome_lado = {x["_rotulo"]: (f'{unidades[x["_rotulo"]]} · ' if x["_rotulo"] in unidades else "") + x["nome"] for x in ad}
+        incl = [mi["eixo"] for mi in muros_incl if mi["vista"] == vid]
+        for pw in pws:
+            d_ = pw.__dict__.copy()
+            d_["lado_a"] = [nome_lado.get(l, l) for l in pw.lado_a]
+            d_["lado_b"] = [nome_lado.get(l, l) for l in pw.lado_b]
+            d_["vista"] = vid
+            # trechos curtos que são o muro inclinado picado em degraus (o 3D usa o muro inteiro):
+            # no térreo viram muro, para não entrarem como fachada na pintura nem no orçamento
+            if incl and "sub" not in v.titulo.lower() and _trecho_de_muro_inclinado(d_, incl, m):
+                d_["tipo"], d_["fachada"], d_["motivo"] = "muro", False, "trecho do muro inclinado (divisa)"
+            paredes_out.append(d_)
+        for i, a in enumerate(ambs):
+            ambientes_out.append({
+                "unidade": unidades.get(f"A{i:02d} · {a.nome}"),
+                "vista": vid, "pavimento": v.titulo, "pagina": pag.numero, "nome": a.nome,
+                "area_rotulo_m2": a.area_rotulo_m2,
+                "area_m2": round(a.area_m2, 3) if a.area_m2 is not None else None,
+                "area_piso_m2": round(a.area_piso_m2, 3) if a.area_piso_m2 is not None else None,
+                "perimetro_m": round(a.perimetro_m, 3) if a.perimetro_m is not None else None,
+                "divergencia_pct": round(a.divergencia_pct, 2) if a.divergencia_pct is not None else None,
+                "area_teto_m2": round(a.area_teto_m2, 3) if a.area_teto_m2 is not None else None,
+                "perimetro_parede_m": round(a.perimetro_parede_m, 3) if a.perimetro_parede_m is not None else None,
+                "sem_parede_m": round(a.sem_parede_m, 3) if a.sem_parede_m is not None else None,
+                "vaos": a.vaos,
+                "status": a.status, "observacao": a.observacao,
+                "poligono": a.poligono, "furos": a.furos, "rotulo_xy": [round(x, 2) for x in a.rotulo_xy],
             })
-            for x0, y0, x1, y1, t in COB.muros_inclinados(pag, v.caixa, m):
-                muros_incl.append({"vista": vid, "eixo": [round(x0, 2), round(y0, 2), round(x1, 2), round(y1, 2)], "espessura_m": round(t, 3)})
-            # modelo de paredes ("BIM de alvenaria")
-            ad = [{"nome": a.nome, "poligono": a.poligono, "furos": a.furos, "rotulo_xy": a.rotulo_xy,
-                   "_rotulo": f"A{i:02d} · {a.nome}"} for i, a in enumerate(ambs)]
-            unidades = PAR.agrupar_unidades(ad, ctx["vaos"], m)
-            pws = PAR.extrair(ctx, ad, v.titulo, m, vid)
-            PAR.classificar(pws, unidades, tem_unidades=bool(unidades))
-            nome_lado = {x["_rotulo"]: (f'{unidades[x["_rotulo"]]} · ' if x["_rotulo"] in unidades else "") + x["nome"] for x in ad}
-            incl = [mi["eixo"] for mi in muros_incl if mi["vista"] == vid]
-            for pw in pws:
-                d_ = pw.__dict__.copy()
-                d_["lado_a"] = [nome_lado.get(l, l) for l in pw.lado_a]
-                d_["lado_b"] = [nome_lado.get(l, l) for l in pw.lado_b]
-                d_["vista"] = vid
-                # trechos curtos que são o muro inclinado picado em degraus (o 3D usa o muro inteiro):
-                # no térreo viram muro, para não entrarem como fachada na pintura nem no orçamento
-                if incl and "sub" not in v.titulo.lower() and _trecho_de_muro_inclinado(d_, incl, m):
-                    d_["tipo"], d_["fachada"], d_["motivo"] = "muro", False, "trecho do muro inclinado (divisa)"
-                paredes_out.append(d_)
-            for i, a in enumerate(ambs):
-                ambientes_out.append({
-                    "unidade": unidades.get(f"A{i:02d} · {a.nome}"),
-                    "vista": vid, "pavimento": v.titulo, "pagina": pag.numero, "nome": a.nome,
-                    "area_rotulo_m2": a.area_rotulo_m2,
-                    "area_m2": round(a.area_m2, 3) if a.area_m2 is not None else None,
-                    "area_piso_m2": round(a.area_piso_m2, 3) if a.area_piso_m2 is not None else None,
-                    "perimetro_m": round(a.perimetro_m, 3) if a.perimetro_m is not None else None,
-                    "divergencia_pct": round(a.divergencia_pct, 2) if a.divergencia_pct is not None else None,
-                    "area_teto_m2": round(a.area_teto_m2, 3) if a.area_teto_m2 is not None else None,
-                    "perimetro_parede_m": round(a.perimetro_parede_m, 3) if a.perimetro_parede_m is not None else None,
-                    "sem_parede_m": round(a.sem_parede_m, 3) if a.sem_parede_m is not None else None,
-                    "vaos": a.vaos,
-                    "status": a.status, "observacao": a.observacao,
-                    "poligono": a.poligono, "furos": a.furos, "rotulo_xy": [round(x, 2) for x in a.rotulo_xy],
-                })
-            # escada: degraus, patamar e corrimão lidos da numeração dos pisos (para o 3D)
-            for a in ambs:
-                if a.poligono and a.nome.lower().startswith("escada"):
-                    g = ESC.ler(pag, a.poligono, m) or {"sobe": False}
-                    escadas_out.append({"vista": vid, "ambiente": a.nome, "anotacoes": ESC.anotacoes(pag, _Poly(a.poligono)), **g})
-            for e in esqs:
-                esquadrias_out.append({"vista": vid, "pavimento": v.titulo, "tipo": e.tipo,
-                                       "largura_m": e.largura_m, "altura_m": e.altura_m,
-                                       "peitoril_m": e.peitoril_m, "xy": [round(e.x, 2), round(e.y, 2)]})
+        # escada: degraus, patamar e corrimão lidos da numeração dos pisos (para o 3D)
+        for a in ambs:
+            if a.poligono and a.nome.lower().startswith("escada"):
+                g = ESC.ler(pag, a.poligono, m) or {"sobe": False}
+                escadas_out.append({"vista": vid, "ambiente": a.nome, "anotacoes": ESC.anotacoes(pag, _Poly(a.poligono)), **g})
+        for e in esqs:
+            esquadrias_out.append({"vista": vid, "pavimento": v.titulo, "tipo": e.tipo,
+                                   "largura_m": e.largura_m, "altura_m": e.altura_m,
+                                   "peitoril_m": e.peitoril_m, "xy": [round(e.x, 2), round(e.y, 2)]})
     # ordem natural dos pavimentos: subsolo, térreo, 1º, 2º…
     def nivel(t):
         t = t.lower()
@@ -252,7 +280,7 @@ def planilha(dados: dict, destino: Path):
         ("", False),
         ("Como foi medido", True),
         ("• Áreas e perímetros calculados pela geometria vetorial do PDF (camadas do CAD: paredes, esquadrias, soleiras), não estimados por IA.", False),
-        ("• Escala calibrada pelas cotas de cada vista (aba Calibração). O PDF não está exatamente em 1:50; usar a escala nominal subestimaria as áreas.", False),
+        ("• Escala calibrada pelas cotas (aba Calibração): uma escala única para o documento, porque o PDF raramente sai exatamente na escala nominal. Pavimentos repetidos usam as coordenadas do primeiro igual.", False),
         ("• Vãos de porta e janela fechados no alinhamento das faces da parede (como o CAD faz). Passagens sem porta não separam ambientes.", False),
         ("• Cada ambiente é conferido contra a área escrita no rótulo do arquiteto.", False),
         ("", False),
@@ -423,17 +451,30 @@ def planilha(dados: dict, destino: Path):
     rq.cell(row=1, column=1).value = "Agrupamento"
 
     ca = wb.create_sheet("Calibração")
-    _cabecalho(ca, ["Prancha", "Vista", "Escala nominal", "mm/pt nominal", "mm/pt pelas cotas", "Diferença", "Cotas usadas", "Dispersão"],
-               [9, 22, 14, 14, 16, 11, 12, 11])
+    _cabecalho(ca, ["Prancha", "Vista", "Escala nominal", "mm/pt nominal", "mm/pt pelas cotas da vista", "mm/pt usado (documento)",
+                    "Diferença do usado p/ nominal", "Cotas usadas", "Dispersão", "Geometria"],
+               [9, 22, 14, 14, 18, 18, 16, 12, 11, 44])
     for i, v in enumerate(dados["vistas"], 2):
         ca.cell(row=i, column=1, value=v["pagina"])
         ca.cell(row=i, column=2, value=v["titulo"])
         ca.cell(row=i, column=3, value=f"1:{v['escala_nominal']}")
-        ca.cell(row=i, column=4, value=v["m_por_pt_nominal"] * 1000).number_format = "0.0000"
-        ca.cell(row=i, column=5, value=v["m_por_pt"] * 1000 if v["calibrada"] else None).number_format = "0.0000"
-        ca.cell(row=i, column=6, value=f'=IF(ISNUMBER(E{i}),E{i}/D{i}-1,"")').number_format = "+0.00%;-0.00%"
-        ca.cell(row=i, column=7, value=v["n_cotas"])
-        ca.cell(row=i, column=8, value=(v["dispersao_pct"] or 0) / 100).number_format = "0.00%"
+        ca.cell(row=i, column=4, value=v["m_por_pt_nominal"] * 1000).number_format = "0.00000"
+        mv = v.get("m_por_pt_vista", v["m_por_pt"] if v["calibrada"] else None)
+        ca.cell(row=i, column=5, value=mv * 1000 if mv else None).number_format = "0.00000"
+        ca.cell(row=i, column=6, value=v["m_por_pt"] * 1000).number_format = "0.00000"
+        ca.cell(row=i, column=7, value=f"=F{i}/D{i}-1").number_format = "+0.000%;-0.000%"
+        ca.cell(row=i, column=8, value=v["n_cotas"])
+        ca.cell(row=i, column=9, value=(v["dispersao_pct"] or 0) / 100).number_format = "0.00%"
+        ca.cell(row=i, column=10, value=f"repete o {v['repete']} (mesmas linhas de parede)" if v.get("repete") else "própria")
+    k = len(dados["vistas"]) + 3
+    for j, txt in enumerate([
+        "Escala única: o PDF tem um só fator de exportação. Cada vista é calibrada pelas cotas, e a escala usada é a mediana "
+        "ponderada das vistas (as cotas são arredondadas ao centímetro e, sozinhas, variam até 0,02%).",
+        "Pavimentos repetidos: quando as linhas de parede de uma vista coincidem com as de outra (≥ 98% a menos de 0,15 pt), "
+        "a vista usa as coordenadas da primeira. Assim andares iguais dão as mesmas áreas, paredes e paginação; "
+        "o que muda de verdade (ex.: escada do último andar) é lido da própria vista.",
+    ], k):
+        ca.cell(row=j, column=1, value=txt).font = Font(italic=True)
     SP.abas(wb, dados, _cabecalho)
     if dados.get("paginacao", {}).get("vista_detalhe"):
         SPG.abas(wb, dados, _cabecalho)
@@ -455,7 +496,8 @@ def pagina_conferencia(dados: dict, pdf: Path, destino: Path):
     for v in dados["vistas"]:
         x0, y0, x1, y1 = v["caixa"]
         x0, y0, x1, y1 = x0 - 15, y0 - 15, x1 + 15, y1 + 15
-        pix = doc[v["pagina"] - 1].get_pixmap(matrix=pymupdf.Matrix(1.6, 1.6), clip=pymupdf.Rect(x0, y0, x1, y1),
+        ddx, ddy = v.get("desloc") or (0, 0)          # andar repetido: dados no sistema da referência
+        pix = doc[v["pagina"] - 1].get_pixmap(matrix=pymupdf.Matrix(1.6, 1.6), clip=pymupdf.Rect(x0 + ddx, y0 + ddy, x1 + ddx, y1 + ddy),
                                                colorspace=pymupdf.csGRAY)
         img = base64.b64encode(pix.tobytes("png")).decode()
         qidx = {q["indice_ambiente"]: q for q in dados["quantitativos"]}
