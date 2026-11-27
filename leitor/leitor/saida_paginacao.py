@@ -32,6 +32,7 @@ def _itens(fam_id: str):
           ("Modulação", "Cortes/compensadores (peças)", "cortes (peças)"),
           ("Modulação", "   … junto a portas e janelas", "cortes junto a vão"),
           ("Modulação", "   … em trecho corrido de parede", "cortes em trecho corrido"),
+          ("Modulação", "Juntas a prumo (bloco sobre bloco, sem amarração)", "juntas a prumo"),
           ("Modulação", "Linhas de parede que fecham no módulo", "linhas que fecham no módulo"),
           ("Modulação", "Linhas de parede (total)", "linhas")]
     return it
@@ -80,6 +81,8 @@ def abas(wb, dados, cabecalho):
         f"transpasse de verga/contraverga {PREMISSAS['transpasse_verga_cm']} cm de cada lado; vão de alvenaria arredondado para a fiada de cima.",
         "Estrutural: última fiada em canaleta (cinta de respaldo; J na fachada). Vedação: última fiada em bloco comum com encunhamento.",
         "Térreo e subsolo (sob a transição) e muros não entram na paginação: aparecem como 'a definir' na aba Paredes.",
+        "Amarração: em cada trecho de cada fiada o leitor escolhe começar com bloco inteiro ou meio bloco, e deixar a sobra numa ou noutra ponta, "
+        "para nenhuma junta vertical ficar a prumo com a fiada de baixo; blocos de amarração T e pontas de verga se deslocam alguns centímetros pelo mesmo motivo.",
         "Cortes = sobras fora do módulo (corte de bloco ou compensador). Junto a vão indica largura/posição de porta ou janela fora do módulo; "
         "em trecho corrido indica comprimento de parede fora do módulo.",
     ]

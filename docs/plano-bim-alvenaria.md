@@ -6,6 +6,7 @@ Status em 27/11/2026:
 - **B1 (modelo de paredes) feita:** `leitor/leitor/paredes.py`, aba Paredes e página `paredes.html`.
 - **B2 (paginação) feita:** `leitor/leitor/paginacao.py`, abas Paginação e Paginação por parede, página `paginacao.html`, com comparação das famílias 29 e 39.
 - **Família escolhida: 39** (27/11/2026).
+- **Amarração revisada (27/11/2026).** A paginação tinha 7.845 juntas a prumo (29%): toda fiada começava no mesmo ponto quando a ponta era T, vão ou bloco especial. Agora cada trecho escolhe a arrumação (inteiro ou meio no início, sobra numa ou noutra ponta, compensador se preciso), o bloco T e as pontas de verga se deslocam até 20 cm, e a conferência dá **0 juntas a prumo** em 25.303 juntas.
 - **B3 (insumos) feita:** `leitor/leitor/insumos.py` e aba "Insumos (B3)". Cada linha é base medida × coeficiente × (1 + perda), com coeficiente e perda editáveis.
 - Próximo: B4 (preço).
 
