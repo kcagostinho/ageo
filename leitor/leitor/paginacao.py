@@ -227,6 +227,7 @@ def paginar_linha(L: dict, familia: str, pe_direito_m: float, prem=PREMISSAS, gu
         respaldo = L["tipo"] == "estrutural" and k == n - 1
         if respaldo:
             _canaletas(ini, fim, fam, "J" if L["fachada"] else "U", tol, pecas, cont)
+            cont["cinta de respaldo (m)"] += (fim - ini) / 100
         else:
             # especiais: L (fam. 39) na ponta que passa
             if fam.get("L"):
@@ -257,6 +258,7 @@ def paginar_linha(L: dict, familia: str, pe_direito_m: float, prem=PREMISSAS, gu
                 if tp in ("verga", "contraverga"):
                     _canaletas(b0, b1, fam, "U", tol, pecas, cont)
                     cont[f"{tp}s (m)"] += (b1 - b0) / 100
+                    cont[f"{tp}s {L['tipo']} (m)"] += (b1 - b0) / 100
                 elif tp == "especial":
                     pecas.append((b0, b1 - b0, "especial"))
                 else:

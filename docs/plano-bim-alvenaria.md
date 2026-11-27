@@ -5,7 +5,25 @@
 Status em 27/11/2026:
 - **B1 (modelo de paredes) feita:** `leitor/leitor/paredes.py`, aba Paredes e página `paredes.html`.
 - **B2 (paginação) feita:** `leitor/leitor/paginacao.py`, abas Paginação e Paginação por parede, página `paginacao.html`, com comparação das famílias 29 e 39.
-- Próximo: B3 (argamassa, graute, aço, telas, gesso, pintura) e B4 (preço).
+- **Família escolhida: 39** (27/11/2026).
+- **B3 (insumos) feita:** `leitor/leitor/insumos.py` e aba "Insumos (B3)". Cada linha é base medida × coeficiente × (1 + perda), com coeficiente e perda editáveis.
+- Próximo: B4 (preço).
+
+### Resultado da B3 (obra: 1º ao 5º pavimento; fachada e gesso incluem o térreo)
+
+| Insumo | Quantidade (com perdas) |
+|---|---|
+| Bloco 14×19×39 / meio / 34 / 54 | 10.983 / 1.302 / 378 / 168 un |
+| Canaleta J / U (14 cm) | 1.024 / 1.607 un (+ meias) |
+| Blocos para cortes/compensadores | 4.196 un (cai muito com portas/janelas moduladas) |
+| Bloco 9×19×39 / meio / canaleta | 9.954 / 1.754 / 315 un |
+| Argamassa de assentamento (estrutural + vedação) | 5,96 + 3,95 m³ |
+| Graute (cintas, vergas/contravergas, pontos verticais, vedação) | 7,83 + 6,46 + 13,76 + 0,99 m³ |
+| Aço (Ø10 cintas, Ø8 vergas, Ø10 verticais, Ø6,3 vedação) | 715 + 378 + 753 + 65 kg |
+| Telas vedação × estrutural / encunhamento | 792 un / 450 m |
+| Fundo preparador / gesso paredes / gesso tetos | 3.871 / 2.775 / 1.096 m² |
+| Cerâmica banheiros (até o teto) / cozinhas (1,50 m) | 370 / 343 m² (premissa) |
+| Pintura projetada: fachada / varandas / platibanda | 1.091 / 246 / 176 m² |
 
 ### Resultado da B2 (por pavimento-tipo; os 5 são iguais)
 

@@ -28,6 +28,8 @@ from leitor import paredes as PAR              # noqa: E402
 from leitor import saida_paredes as SP         # noqa: E402
 from leitor import paginacao as PG             # noqa: E402
 from leitor import saida_paginacao as SPG      # noqa: E402
+from leitor import insumos as INS              # noqa: E402
+from leitor import saida_insumos as SINS       # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
 from leitor.esquadrias import ler_esquadrias   # noqa: E402
 from leitor.ingestao import extrair            # noqa: E402
@@ -37,7 +39,7 @@ STATUS_TXT = {"ok": "Conferido", "conferir": "Conferir", "divergente": "Divergen
               "rotulos_juntos": "Rótulos juntos", "sem_poligono": "Sem polígono"}
 
 
-def medir(pdf: Path, saida: Path, obra: str) -> dict:
+def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
     paginas = extrair(pdf, cache_dir=saida.parent / "_cache")
     vistas_out, ambientes_out, esquadrias_out, vaos_out, paredes_out = [], [], [], [], []
     for pag in paginas:
@@ -154,6 +156,9 @@ def medir(pdf: Path, saida: Path, obra: str) -> dict:
                    for p in paredes_out if p["vista"] == v_tipo and p["tipo"] == "estrutural")
         dados["paginacao"][fam] = {"por_pavimento": {k: dict(v) for k, v in por.items()}, "detalhes": det,
                                    "area_estrutural_tipo_m2": area}
+    dados["premissas"]["familia"] = familia
+    if v_tipo:
+        dados["insumos"] = INS.calcular(dados, familia)
     return dados
 
 
@@ -357,7 +362,9 @@ def planilha(dados: dict, destino: Path):
     SP.abas(wb, dados, _cabecalho)
     if dados.get("paginacao", {}).get("vista_detalhe"):
         SPG.abas(wb, dados, _cabecalho)
-    ordem_abas = ["Leia-me", "Resumo", "Resumo quantitativos", "Resumo paredes", "Paginação", "Quantitativos", "Paredes",
+    if dados.get("insumos"):
+        SINS.aba(wb, dados["insumos"], _cabecalho)
+    ordem_abas = ["Leia-me", "Resumo", "Insumos (B3)", "Resumo quantitativos", "Resumo paredes", "Paginação", "Quantitativos", "Paredes",
                   "Paginação por parede", "Ambientes", "Esquadrias", "Premissas", "Calibração"]
     ordem_abas = [n for n in ordem_abas if n in wb.sheetnames]
     wb._sheets = [wb[n] for n in ordem_abas]
@@ -511,9 +518,10 @@ def main():
     ap.add_argument("pdf", type=Path)
     ap.add_argument("--obra", default="Obra")
     ap.add_argument("--saida", type=Path, required=True)
+    ap.add_argument("--familia", default="39", choices=["29", "39"], help="família do bloco estrutural (padrão 39)")
     a = ap.parse_args()
     a.saida.mkdir(parents=True, exist_ok=True)
-    dados = medir(a.pdf, a.saida, a.obra)
+    dados = medir(a.pdf, a.saida, a.obra, a.familia)
     (a.saida / "obra.json").write_text(json.dumps(dados, ensure_ascii=False, indent=1), encoding="utf-8")
     planilha(dados, a.saida / "medicao.xlsx")
     pagina_conferencia(dados, a.pdf, a.saida / "conferencia.html")

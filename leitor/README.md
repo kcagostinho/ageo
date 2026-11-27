@@ -40,6 +40,12 @@ Saídas em `--saida`:
     - Vergas e contravergas em canaleta; cinta de respaldo (J na fachada).
     - Meio bloco junto a vãos nas fiadas pares; sobras fora do módulo contadas como corte.
     - Gera a comparação das famílias 29 e 39 e o ajuste que cada parede precisaria para fechar no módulo.
+12. **Insumos** (`insumos.py`), com a família escolhida (`--familia 39`, padrão):
+    - blocos e canaletas da paginação;
+    - argamassa pela geometria das juntas;
+    - graute e aço de cintas, vergas, contravergas e pontos verticais (encontros, pontas e laterais de vão);
+    - telas nos encontros vedação × estrutural e encunhamento;
+    - fundo preparador + gesso por dentro, cerâmica das áreas molhadas e pintura projetada na fachada, varandas e platibanda.
 9. **Quantitativos** (`quantitativos.py`): contorno de cada ambiente classificado em parede, vão ou aberto (guarda-corpo, lado aberto).
    - Piso = área. Teto = área coberta.
    - Rodapé = contorno com parede − portas.
