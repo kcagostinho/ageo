@@ -16,7 +16,7 @@ Saídas em `--saida`:
 | `conferencia.html` | Prancha com cada ambiente desenhado e colorido pelo status, para conferência visual |
 | `paredes.html` | Modelo de paredes: cada parede com eixo e espessura, colorida por tipo (estrutural, vedação…). Clique para reclassificar e baixe os ajustes |
 | `paginacao.html` | Paginação estimada: elevação de cada parede bloco a bloco, famílias 29 e 39, com comparação de peças e cortes |
-| `modelo3d.html` | Modelo 3D (three.js embutido): andares alinhados pelo núcleo, paredes por tipo com vãos, ambientes clicáveis, **paginação em blocos 3D** (cintas, vergas, contravergas e pontos de graute em destaque), filtros, corte horizontal e resumo por andar |
+| `modelo3d.html` | Modelo 3D (three.js embutido): andares alinhados pelo núcleo, paredes por tipo com vãos, ambientes clicáveis, **paginação em blocos 3D** (cintas, vergas, contravergas e pontos de graute em destaque), esquadrias, lajes, cobertura com telhados e reservatórios, muros, filtros, cortes horizontal e vertical e resumo por andar |
 | `obra.json` | Tudo acima com os polígonos, para as próximas fases (lacunas, EAP) |
 
 ## Como mede
@@ -47,6 +47,7 @@ Saídas em `--saida`:
     - graute e aço de cintas, vergas, contravergas e pontos verticais (encontros, pontas e laterais de vão);
     - telas nos encontros vedação × estrutural e encunhamento;
     - fundo preparador + gesso por dentro, cerâmica das áreas molhadas e pintura projetada na fachada, varandas e platibanda.
+13. **Cobertura e muros inclinados** (`cobertura.py`): parapeito, platibanda, águas do telhado (hachura `A-ROOF-PATT`), calhas e reservatórios da planta de cobertura; muros inclinados por pares de linhas paralelas de `A-WALL`.
 9. **Quantitativos** (`quantitativos.py`): contorno de cada ambiente classificado em parede, vão ou aberto (guarda-corpo, lado aberto).
    - Piso = área. Teto = área coberta.
    - Rodapé = contorno com parede − portas.
@@ -56,7 +57,7 @@ Saídas em `--saida`:
 ## Limitações conhecidas
 
 - Depende de PDF vetorial com camadas no padrão do CAD (nomes AIA: `A-WALL`, `A-DOOR`…). PDF escaneado não funciona.
-- Só mede ambientes que têm rótulo de área. Áreas de terreno (planta de locação), cobertura, fachadas e cortes ficam para depois.
+- Só mede ambientes que têm rótulo de área. A cobertura entra só no 3D (sem quantitativo na planilha). Terreno (planta de locação) e fachadas ficam para depois.
 - Paredes ortogonais. Vãos em paredes inclinadas não são fechados automaticamente.
 
 Os arquivos das obras (`obras/`) ficam fora do git.

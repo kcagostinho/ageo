@@ -6,13 +6,26 @@
 > - ver paredes internas e externas;
 > - ver a alvenaria **bloco a bloco**.
 
-Status em 27/11/2026: **3D-1 e 3D-2 feitas.**
+Status em 27/11/2026: **3D-1, 3D-2 e 3D-3 feitas.**
 - 3D-2: modo "Paginação (blocos)" com cerca de 30 mil peças instanciadas (1º ao 5º, família 39).
 - Destaque de cintas, vergas e contravergas; 74 pontos de graute por pavimento.
 - Clique numa parede mostra a contagem por peça e a elevação 2D.
-- Gerador: `leitor/leitor/saida_3d.py`; saída `modelo3d.html`, arquivo único de ~950 KB que funciona sem internet.
+- 3D-3: o prédio completo.
+  - Esquadrias por tipo: vidro, caixilho, porta de madeira, portão e elevador, e gradil das varandas (corrimão a 1,10 m).
+  - Lajes de cada pavimento.
+  - Andar "Cobertura" lido da planta de cobertura (`leitor/leitor/cobertura.py`):
+    - parapeito de 1,20 m e platibanda da caixa d'água de 4,00 m;
+    - 3 águas de fibrocimento com i = 10% descendo para as calhas, 191 m²;
+    - 4 reservatórios de 5.000 L, contados pelo texto da planta e localizados pelos círculos tracejados.
+  - Muros: os inclinados agora entram. Os do térreo têm 2,20 m; os do subsolo ficam "a definir".
+  - Corte vertical (transversal ou longitudinal) com controle de posição, somado ao corte horizontal.
+- Gerador: `leitor/leitor/saida_3d.py`; saída `modelo3d.html`, arquivo único de ~1,5 MB que funciona sem internet.
 - three.js 0.160 com OrbitControls, num pacote embutido em `leitor/leitor/vendor` (licença MIT).
-- Decisões aplicadas: arquivo HTML; térreo e subsolo incluídos; muros escondidos por padrão; cobertura na 3D-3.
+- Decisões aplicadas: arquivo HTML; térreo e subsolo incluídos; muros escondidos por padrão.
+- Premissas a confirmar:
+  - altura dos muros (2,20 m) e dos reservatórios (1,60 m);
+  - telhado da caixa d'água simplificado (uma água);
+  - "Exportar imagem" ficou para depois.
 
 ---
 
@@ -87,7 +100,7 @@ obra.json ──► saida_3d.py ──► modelo3d.html (arquivo único: three.j
 |---|---|---|
 | **3D-1 · Volumes** | Andares empilhados e alinhados; seleção de andar; pisos clicáveis com os dados; paredes sólidas por tipo com vãos; filtros interna/externa; vistas prontas | Andares alinhados (≤ 1 cm); clique mostra os mesmos números da planilha; gira liso no celular |
 | **3D-2 · Paginação** | Blocos 3D por tipo; destaque de cintas, vergas e contravergas; pontos de graute; clique na parede abre a elevação e a contagem | Total de peças no 3D = aba Paginação; a elevação 2D bate com a vista 3D |
-| **3D-3 · Completar o prédio** | Esquadrias; lajes; cobertura (telhado, platibanda, caixa d'água a partir da planta de cobertura e dos cortes); terreno e muros; corte vertical; exportar imagem | Silhueta confere com as fachadas e os cortes |
+| **3D-3 · Completar o prédio** ✅ | Esquadrias; lajes; cobertura (telhado, platibanda, caixa d'água a partir da planta de cobertura e dos cortes); terreno e muros; corte vertical; exportar imagem | Silhueta confere com as fachadas e os cortes |
 | **3D-4 · Custo** (depois da B4) | Clique mostra o custo do elemento; mapa de calor de custo por parede/andar | Soma no 3D = total do orçamento |
 
 *Opcional:* exportar IFC para abrir em visualizadores BIM.

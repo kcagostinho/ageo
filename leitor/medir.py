@@ -31,6 +31,7 @@ from leitor import saida_paginacao as SPG      # noqa: E402
 from leitor import insumos as INS              # noqa: E402
 from leitor import saida_insumos as SINS       # noqa: E402
 from leitor import saida_3d as S3D             # noqa: E402
+from leitor import cobertura as COB            # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
 from leitor.esquadrias import ler_esquadrias   # noqa: E402
 from leitor.ingestao import extrair            # noqa: E402
@@ -42,7 +43,7 @@ STATUS_TXT = {"ok": "Conferido", "conferir": "Conferir", "divergente": "Divergen
 
 def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
     paginas = extrair(pdf, cache_dir=saida.parent / "_cache")
-    vistas_out, ambientes_out, esquadrias_out, vaos_out, paredes_out = [], [], [], [], []
+    vistas_out, ambientes_out, esquadrias_out, vaos_out, paredes_out, muros_incl = [], [], [], [], [], []
     for pag in paginas:
         for v in encontrar_vistas(pag):
             cal = calibrar(pag, v.caixa)
@@ -67,6 +68,8 @@ def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
                 "m_por_pt": m, "calibrada": bool(cal),
                 "n_cotas": cal.n_cotas if cal else 0, "dispersao_pct": cal.desvio_pct if cal else None,
             })
+            for x0, y0, x1, y1, t in COB.muros_inclinados(pag, v.caixa, m):
+                muros_incl.append({"vista": vid, "eixo": [round(x0, 2), round(y0, 2), round(x1, 2), round(y1, 2)], "espessura_m": round(t, 3)})
             # modelo de paredes ("BIM de alvenaria")
             ad = [{"nome": a.nome, "poligono": a.poligono, "furos": a.furos, "rotulo_xy": a.rotulo_xy,
                    "_rotulo": f"A{i:02d} · {a.nome}"} for i, a in enumerate(ambs)]
@@ -143,7 +146,7 @@ def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
             pd[p], fontes[p] = 2.60, "padrão (não encontrado nos cortes)"
     dados = {"obra": obra, "documento": pdf.name, "gerado_em": date.today().isoformat(),
              "vistas": vistas_out, "ambientes": ambientes_out, "esquadrias": esquadrias_out, "vaos": vaos_out,
-             "paredes": paredes_out,
+             "paredes": paredes_out, "muros_inclinados": muros_incl, "cobertura_pdf": COB.ler_cobertura(paginas),
              "premissas": {"pe_direito_m": pd, "fonte_pe_direito": fontes,
                            "altura_padrao_m": Q.PADRAO_ALTURA, "varanda": PREMISSA_VARANDA}}
     dados["quantitativos"] = Q.calcular(dados, pd)

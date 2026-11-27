@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import unicodedata
 from pathlib import Path
 
@@ -63,6 +64,8 @@ def montar(dados: dict) -> dict:
         acc -= pd.get(nomes[i], 2.6) + laje
         z[nomes[i]] = acc
     qidx = {q["indice_ambiente"]: q for q in dados["quantitativos"]}
+    vao_por_id = {x["id"]: x for x in dados.get("vaos", [])}
+    from .cobertura import ALTURAS
     pag39 = dados.get("paginacao", {}).get(dados["premissas"].get("familia", "39"), {}).get("por_pavimento", {})
 
     andares = []
@@ -106,12 +109,44 @@ def montar(dados: dict) -> dict:
                 else:
                     base = x.get("peitoril_m") or 1.0
                     topo = base + (x.get("altura_m") or 1.2)
-                vaos.append([x["tipo"], _r(x["inicio_m"]), _r(w), _r(base, 2), _r(topo, 2)])
+                # tipo de esquadria para o 3D
+                if x["tipo"] == "porta":
+                    if w >= 2.5:
+                        kind = "portao"
+                    elif vao_por_id.get(x["vao"], {}).get("por_vidro"):
+                        kind = "vidro"
+                    elif any("Elevador" in l for l in p["lado_a"] + p["lado_b"]):
+                        kind = "elevador"
+                    else:
+                        kind = "madeira"
+                else:
+                    kind = "gradil" if x["tipo"] == "varanda" else "janela"
+                vaos.append([x["tipo"], _r(x["inicio_m"]), _r(w), _r(base, 2), _r(topo, 2), kind])
             par_out.append({"id": p["id"], "tipo": p["tipo"], "fachada": p["fachada"], "a": a_, "b": b_,
                             "t": p["espessura_m"], "comp": p["comprimento_m"], "enc": [p["encontros"]["a"], p["encontros"]["b"]],
                             "la": p["lado_a"], "lb": p["lado_b"], "motivo": p["motivo"], "vaos": vaos})
             if p["tipo"] != "muro":
                 caixas.append(LineString([a_, b_]).buffer(p["espessura_m"] / 2, cap_style="square"))
+
+        # muros inclinados (pares de linhas em ângulo): entram inteiros e substituem os pedaços picados
+        incl = [mi for mi in dados.get("muros_inclinados", []) if mi["vista"] == v["id"]]
+        if incl:
+            eixos = []
+            for n_, mi in enumerate(incl, 1):
+                a_, b_ = conv(mi["eixo"][:2]), conv(mi["eixo"][2:])
+                eixos.append(LineString([a_, b_]))
+                termo = "terreo" in _sa(v["titulo"])
+                par_out.append({"id": f"{v['id']}-MI{n_}", "tipo": "muro" if termo else "a definir", "fachada": True,
+                                "a": a_, "b": b_, "t": mi["espessura_m"], "comp": round(eixos[-1].length, 3), "enc": ["—", "—"],
+                                "la": ["—"], "lb": ["—"], "vaos": [],
+                                "h": ALTURAS["muro_m"] if termo else None,
+                                "motivo": "muro inclinado (divisa)" + (f", altura assumida {ALTURAS['muro_m']:.2f} m" if termo else ", arrimo do subsolo a definir")})
+            def picado(x):
+                if x["comp"] > 0.8 or x["tipo"] not in ("muro", "a definir", "concreto") or "-MI" in x["id"]:
+                    return False
+                meio = LineString([x["a"], x["b"]]).interpolate(0.5, normalized=True)
+                return any(e.distance(meio) < 0.35 for e in eixos)
+            par_out[:] = [x for x in par_out if not picado(x)]
 
         # laje: contorno do andar (ambientes + paredes), com furo no elevador e na escada
         corpo = shapely.union_all([g for _, g in polys_m if not g.is_empty] + caixas).buffer(0.03, join_style="mitre").buffer(-0.03, join_style="mitre")
@@ -131,7 +166,7 @@ def montar(dados: dict) -> dict:
             return sum(x[campo] for x in par_out if x["tipo"] == tipo)
         pdv = pd.get(v["titulo"], 2.6)
         def liq(tipo):
-            return sum(x["comp"] * pdv - sum(w * (t1 - t0) for _, _, w, t0, t1 in x["vaos"]) for x in par_out if x["tipo"] == tipo)
+            return sum(x["comp"] * pdv - sum(y[2] * (y[4] - y[3]) for y in x["vaos"]) for x in par_out if x["tipo"] == tipo)
         pg = pag39.get(v["titulo"], {})
         blocos_est = sum(val for k, val in pg.items() if k.startswith(("14×", "canaleta J 14", "meia canaleta J 14", "canaleta U 14", "meia canaleta U 14")))
         blocos_ved = sum(val for k, val in pg.items() if k.startswith(("9×", "canaleta U 9", "meia canaleta U 9")))
@@ -168,6 +203,62 @@ def montar(dados: dict) -> dict:
                         "ambientes": amb_out, "paredes": par_out, "laje": laje_out,
                         "resumo": [[k, val.replace(",", "X").replace(".", ",").replace("X", ".")] for k, val in resumo]})
 
+    # cobertura: um "andar" a mais sobre o último pavimento, alinhado pelo contorno da fachada
+    cb = dados.get("cobertura_pdf")
+    if cb and andares:
+        topo = andares[-1]
+        ext = [pt for x in topo["paredes"] if x["fachada"] for pt in (x["a"], x["b"])]
+        if ext:
+            t2 = 0.075
+            bx0, by0 = min(q[0] for q in ext) - t2, min(q[1] for q in ext) - t2
+            bx1, by1 = max(q[0] for q in ext) + t2, max(q[1] for q in ext) + t2
+            mc = cb["m_por_pt"]
+            cx0, cy0, cx1, cy1 = cb["caixa"]
+            dx = (bx0 + bx1) / 2 - (cx0 + cx1) / 2 * mc
+            dy = (by0 + by1) / 2 - (cy0 + cy1) / 2 * mc
+            cv = lambda x, y: [_r(x * mc + dx), _r(y * mc + dy)]
+            zc = _r(topo["z"] + topo["pd"] + 0.15, 2)
+            menor = min(cb["telhados"], key=lambda t: (t["x1"] - t["x0"]) * (t["y1"] - t["y0"])) if cb["telhados"] else None
+            def na_caixa_dagua(x0, y0, x1, y1):
+                if not menor:
+                    return False
+                f = 0.35 / mc
+                return all(menor["x0"] - f <= x <= menor["x1"] + f and menor["y0"] - f <= y <= menor["y1"] + f for x, y in ((x0, y0), (x1, y1)))
+            par_c = []
+            for n_, (x0, y0, x1, y1, t) in enumerate(cb["paredes"], 1):
+                plat = na_caixa_dagua(x0, y0, x1, y1)
+                a_, b_ = cv(x0, y0), cv(x1, y1)
+                par_c.append({"id": f"COB-{n_:02d}", "tipo": "parapeito", "fachada": not plat, "a": a_, "b": b_, "t": t,
+                              "comp": _r(math.hypot(b_[0] - a_[0], b_[1] - a_[1])), "enc": ["—", "—"], "la": ["—"], "lb": ["—"], "vaos": [],
+                              "h": ALTURAS["platibanda_m"] if plat else ALTURAS["parapeito_m"],
+                              "motivo": f"platibanda da caixa d'água (h={ALTURAS['platibanda_m']:.2f} m)" if plat else f"parapeito (h={ALTURAS['parapeito_m']:.2f} m)"})
+            telh = []
+            for t in cb["telhados"]:
+                caixa_d = t is menor
+                prof = (t["y1"] - t["y0"]) * mc
+                sobe = ALTURAS["inclinacao"] * prof
+                baixo = (ALTURAS["platibanda_m"] - 0.10 - sobe) if caixa_d else ALTURAS["telhado_folga_m"]
+                telh.append({"p0": cv(t["x0"], t["y0"]), "p1": cv(t["x1"], t["y1"]), "calha": t["calha"], "zb": _r(baixo, 2),
+                             "za": _r(baixo + sobe, 2), "cx": caixa_d,
+                             "area": _r((t["x1"] - t["x0"]) * mc * prof * math.sqrt(1 + ALTURAS["inclinacao"] ** 2), 2)})
+            res = [cv(x, y) + [_r(r * mc, 2)] for x, y, r in cb["reservatorios"]]
+            laje_c = [{"ext": L["ext"], "furos": []} for L in topo["laje"]]
+            laje_res = None
+            if menor:
+                q0, q1 = cv(menor["x0"], menor["y0"]), cv(menor["x1"], menor["y1"])
+                laje_res = [q0, q1]
+            area_tel = sum(t["area"] for t in telh)
+            resumo_c = [["Telhado de fibrocimento (i = 10%)", f"{area_tel:,.2f} m²"],
+                        ["Parapeito (h = 1,20 m)", f"{sum(x['comp'] for x in par_c if x['h'] == ALTURAS['parapeito_m']):,.2f} m"],
+                        ["Platibanda da caixa d'água (h = 4,00 m)", f"{sum(x['comp'] for x in par_c if x['h'] == ALTURAS['platibanda_m']):,.2f} m"],
+                        ["Reservatórios", f"{len(res)} × 5,000 L"],  # a troca abaixo vira 5.000
+                        ["Alturas", "cortes da prancha 5; reservatórios e telhado da caixa d'água simplificados"]]
+            andares.append({"id": "cobertura", "nome": "Cobertura", "ordem": len(andares), "z": zc, "pd": ALTURAS["platibanda_m"], "pag": None,
+                            "ambientes": [], "paredes": par_c, "laje": laje_c,
+                            "cob": {"telhados": telh, "reservatorios": res, "laje_res": laje_res, "z_laje_res": ALTURAS["laje_reservatorio_m"],
+                                    "h_res": ALTURAS["reservatorio_h_m"]},
+                            "resumo": [[k, val.replace(",", "X").replace(".", ",").replace("X", ".")] for k, val in resumo_c]})
+
     obra = []
     ins = dados.get("insumos")
     if ins:
@@ -196,7 +287,7 @@ MODELO = r"""<!doctype html>
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#17181A;--card:rgba(36,36,34,.94);--bd:rgba(255,255,255,.12);--tx:#F5F5F2;--mut:#B4B2A9;--dim:#888780;--acc:#5DCAA5;--chip:#2C2C2A}}
 :root[data-theme=dark]{--bg:#17181A;--card:rgba(36,36,34,.94);--bd:rgba(255,255,255,.12);--tx:#F5F5F2;--mut:#B4B2A9;--dim:#888780;--acc:#5DCAA5;--chip:#2C2C2A}
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;overflow:hidden}
-#c{position:fixed;inset:0}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
 .top{position:fixed;left:0;right:354px;top:0;padding:10px 12px;display:flex;flex-direction:column;gap:6px;pointer-events:none;z-index:2}
 .row{display:flex;gap:6px;overflow-x:auto;pointer-events:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}.row::-webkit-scrollbar{display:none}
 .tit{font-weight:600;font-size:14px;pointer-events:auto;text-shadow:0 1px 0 var(--bg)}
@@ -231,6 +322,7 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{p
  <div class="sec" id="info"><h3>Seleção</h3><div class="mut">Toque ou clique num ambiente ou numa parede.</div></div>
  <div class="sec"><h3>Visualização</h3>
   <div class="ctl"><span>Afastar andares</span><input type="range" id="explode" min="0" max="4" step="0.1" value="0"></div>
+  <div class="ctl"><label><input type="checkbox" id="cortev"> Corte vertical</label><select id="eixov" disabled><option value="x">transversal</option><option value="z">longitudinal</option></select><input type="range" id="posv" min="0.02" max="0.98" step="0.01" value="0.5" disabled></div>
   <div class="ctl"><label><input type="checkbox" id="corte"> Cortar a</label><input type="range" id="altcorte" min="0.3" max="2.6" step="0.05" value="1.2" disabled><span id="altv">1,20 m</span></div>
   <div class="row" id="cams" style="flex-wrap:wrap"></div>
  </div>
@@ -242,7 +334,7 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{p
 <script>
 "use strict";
 const D=__DADOS__;
-const COR_PAREDE={"estrutural":0xC0392B,"vedação":0x2E86C1,"a definir":0xE8A317,"concreto":0x7B7B7B,"muro":0x9A6B2F};
+const COR_PAREDE={"estrutural":0xC0392B,"vedação":0x2E86C1,"a definir":0xE8A317,"concreto":0x7B7B7B,"muro":0x9A6B2F,"parapeito":0xB9B4A8};
 const COR_AMB={"seca":0xE9E1CF,"molhada":0x9FD3E6,"externa":0xB9E0A5,"circulação":0xD9D2E9,"garagem":0xCFCFCF,"técnico":0x8C8C8C};
 const NOME_AMB={"seca":"seco (salas, quartos)","molhada":"molhado","externa":"varanda","circulação":"circulação","garagem":"garagem","técnico":"técnico"};
 const SEL=0xFFD400;
@@ -266,6 +358,7 @@ const controls=new OrbitControls(camera,canvas);controls.enableDamping=true;cont
 scene.add(new THREE.HemisphereLight(0xffffff,0x8a8a80,1.1));
 const sol=new THREE.DirectionalLight(0xffffff,1.1);sol.position.set(30,60,20);scene.add(sol);
 const plano=new THREE.Plane(new THREE.Vector3(0,-1,0),1e6);
+const planoV=new THREE.Plane(new THREE.Vector3(-1,0,0),1e6);
 
 function caixa(pos,cor,cx,cy,cz,ax,az,L,H,T,idx,lista){
  // caixa orientada: centro (cx,cy,cz), eixo horizontal (ax,az), comprimento L, altura H, espessura T
@@ -289,7 +382,7 @@ function pedacos(L,H,vaos){
 const andares=[],pick=[];
 D.andares.forEach((A,ia)=>{
  const g=new THREE.Group();g.userData={A,ia};scene.add(g);
- const mats=[];const mat=o=>{const m=new THREE.MeshLambertMaterial(Object.assign({side:THREE.DoubleSide,clippingPlanes:[plano]},o));mats.push(m);return m};
+ const mats=[];const mat=o=>{const m=new THREE.MeshLambertMaterial(Object.assign({side:THREE.DoubleSide,clippingPlanes:[plano,planoV]},o));m.userData.op=o.opacity??1;mats.push(m);return m};
  // laje (sob o piso)
  A.laje.forEach(L=>{const s=new THREE.Shape(L.ext.map(p=>new THREE.Vector2(p[0],-p[1])));
   L.furos.forEach(h=>s.holes.push(new THREE.Path(h.map(p=>new THREE.Vector2(p[0],-p[1])))));
@@ -310,7 +403,7 @@ D.andares.forEach((A,ia)=>{
   const faixas={};
   lista.forEach(ip=>{const p=A.paredes[ip];const dx=p.b[0]-p.a[0],dz=p.b[1]-p.a[1],L=Math.hypot(dx,dz)||1e-6,ax=dx/L,az=dz/L;
    const ini=pos.length/3;
-   pedacos(L,A.pd,p.vaos).forEach(([u0,u1,z0,z1])=>{const um=(u0+u1)/2;
+   pedacos(L,p.h||A.pd,p.vaos).forEach(([u0,u1,z0,z1])=>{const um=(u0+u1)/2;
     caixa(pos,cor,p.a[0]+ax*um,(z0+z1)/2,p.a[1]+az*um,ax,az,u1-u0,z1-z0,Math.max(p.t,0.05),idx,rgb)});
    const n=(pos.length/3-ini)/3;for(let t=0;t<n;t++)tri.push(ip);faixas[ip]=[ini,pos.length/3-ini]});
   const geo=new THREE.BufferGeometry();geo.setAttribute("position",new THREE.Float32BufferAttribute(pos,3));
@@ -338,11 +431,48 @@ D.andares.forEach((A,ia)=>{
   A.pag.graute.forEach(([x,z],i)=>{M.compose(new THREE.Vector3(x,A.pd/2,z),new THREE.Quaternion(),new THREE.Vector3(1,A.pd+0.02,1));gm.setMatrixAt(i,M)});
   gm.instanceMatrix.needsUpdate=true;gm.computeBoundingSphere();gm.visible=false;g.add(gm);grauteM.push(gm);
  }
- andares.push({g,A,mats,ambs,paredes,pecas,grauteM,rotulos:null});
+ // esquadrias: vidro, caixilho, porta de madeira, portão/elevador, gradil da varanda
+ const esq=[];
+ {const caixaE=new THREE.BoxGeometry(1,1,1),it={vidro:[],caixilho:[],madeira:[],metal:[],gradil:[]};
+  A.paredes.forEach(p=>{if(!p.vaos.length)return;const dx=p.b[0]-p.a[0],dz=p.b[1]-p.a[1],LL=Math.hypot(dx,dz)||1e-6,ax=dx/LL,az=dz/LL,ang=Math.atan2(-az,ax);
+   const put=(k,u,y,w,h,t)=>it[k].push([p.a[0]+ax*u,y,p.a[1]+az*u,ang,w,h,t]);
+   p.vaos.forEach(([tipo,u0,w,b0,b1,kind])=>{const uc=u0+w/2,h=b1-b0,yc=(b0+b1)/2;
+    if(kind==="janela"||kind==="vidro"){put("vidro",uc,yc,w-0.06,h-0.06,0.02);
+     put("caixilho",uc,b1-0.025,w,0.05,0.07);put("caixilho",uc,b0+0.025,w,0.05,0.07);put("caixilho",u0+0.025,yc,0.05,h,0.07);put("caixilho",u0+w-0.025,yc,0.05,h,0.07);
+     if(w>=1.0)put("caixilho",uc,yc,0.04,h,0.06)}
+    else if(kind==="madeira"){put("madeira",uc,h/2,w-0.08,h-0.03,0.035);put("caixilho",u0+0.02,h/2,0.04,h,Math.min(p.t,0.15));put("caixilho",u0+w-0.02,h/2,0.04,h,Math.min(p.t,0.15));put("caixilho",uc,h-0.02,w,0.04,Math.min(p.t,0.15))}
+    else if(kind==="portao"||kind==="elevador"){put("metal",uc,h/2,w-0.04,h-0.02,0.05)}
+    else if(kind==="gradil"){const yt=1.10;put("gradil",uc,yt,w,0.05,0.05);put("gradil",uc,b0+0.04,w,0.04,0.04);
+     const n=Math.max(2,Math.round(w/0.11));for(let i=1;i<n;i++)put("gradil",u0+i*w/n,(b0+yt)/2,0.02,yt-b0,0.02)}})});
+  const COR_ESQ={vidro:[0x9CC8E8,0.35],caixilho:[0x8A8F96,1],madeira:[0xA9784A,1],metal:[0x7D8288,1],gradil:[0x3B3D40,1]};
+  const M=new THREE.Matrix4(),q=new THREE.Quaternion(),Y=new THREE.Vector3(0,1,0);
+  Object.entries(it).forEach(([k,arr])=>{if(!arr.length)return;const [cor,op]=COR_ESQ[k];
+   const me=new THREE.InstancedMesh(caixaE,mat({color:cor,transparent:op<1,opacity:op,depthWrite:op>=1}),arr.length);
+   arr.forEach(([x,y,z,a,w,h,t],i)=>{q.setFromAxisAngle(Y,a);M.compose(new THREE.Vector3(x,y,z),q,new THREE.Vector3(Math.max(w,0.01),Math.max(h,0.01),t));me.setMatrixAt(i,M)});
+   me.instanceMatrix.needsUpdate=true;me.computeBoundingSphere();me.userData={esq:true};g.add(me);esq.push(me)});
+ }
+ // cobertura: telhados (fibrocimento i=10%), calhas, laje e reservatórios da caixa d'água
+ if(A.cob){
+  const listras=()=>{const cv=document.createElement("canvas");cv.width=64;cv.height=8;const c=cv.getContext("2d");c.fillStyle="#D3D0C8";c.fillRect(0,0,64,8);
+   c.fillStyle="#A9A69E";for(let i=0;i<64;i+=8)c.fillRect(i,0,3,8);const t=new THREE.CanvasTexture(cv);t.wrapS=t.wrapT=THREE.RepeatWrapping;return t};
+  A.cob.telhados.forEach(T=>{const [x0,z0]=T.p0,[x1,z1]=T.p1,baixoZ0=T.calha==="y0",y0=baixoZ0?T.zb:T.za,y1=baixoZ0?T.za:T.zb;
+   const geo=new THREE.BufferGeometry();
+   geo.setAttribute("position",new THREE.Float32BufferAttribute([x0,y0,z0,x1,y0,z0,x1,y1,z1,x0,y0,z0,x1,y1,z1,x0,y1,z1],3));
+   geo.setAttribute("uv",new THREE.Float32BufferAttribute([0,0,1,0,1,1,0,0,1,1,0,1],2));geo.computeVertexNormals();
+   const tx=listras();tx.repeat.set(Math.abs(x1-x0)/0.18,1);
+   const me=new THREE.Mesh(geo,mat(T.cx?{map:tx,transparent:true,opacity:0.45,depthWrite:false}:{map:tx}));me.userData.cob=true;g.add(me);
+   if(!T.cx){const zc=baixoZ0?z0:z1,cal=new THREE.Mesh(new THREE.BoxGeometry(Math.abs(x1-x0),0.12,0.25),mat({color:0x9AA0A6}));cal.position.set((x0+x1)/2,T.zb-0.05,zc);g.add(cal)}});
+  if(A.cob.laje_res){const [p0,p1]=A.cob.laje_res;const lr=new THREE.Mesh(new THREE.BoxGeometry(Math.abs(p1[0]-p0[0]),0.15,Math.abs(p1[1]-p0[1])),mat({color:0xBDB9AF}));
+   lr.position.set((p0[0]+p1[0])/2,A.cob.z_laje_res-0.075,(p0[1]+p1[1])/2);g.add(lr)}
+  A.cob.reservatorios.forEach(([x,z,r])=>{const corp=new THREE.Mesh(new THREE.CylinderGeometry(r*0.94,r,A.cob.h_res,32),mat({color:0x2F6DB5}));
+   corp.position.set(x,A.cob.z_laje_res+A.cob.h_res/2,z);g.add(corp);
+   const tampa=new THREE.Mesh(new THREE.SphereGeometry(r*0.94,28,8,0,Math.PI*2,0,Math.PI/2),mat({color:0x2F6DB5}));tampa.scale.y=0.22;tampa.position.set(x,A.cob.z_laje_res+A.cob.h_res,z);g.add(tampa)});
+ }
+ andares.push({g,A,mats,ambs,paredes,pecas,grauteM,esq,rotulos:null});
 });
 
 // ---------- estado e interface
-const S={andar:-1,modo:"paredes",filt:{"estrutural":true,"vedação":true,"a definir":true,"concreto":true,"muro":false,"ext":true,"int":true,"laje":true,"cintas":false,"graute":true},explode:0,corte:false,alt:1.2,sel:null};
+const S={andar:-1,modo:"paredes",filt:{"estrutural":true,"vedação":true,"a definir":true,"concreto":true,"muro":false,"ext":true,"int":true,"laje":true,"cintas":false,"graute":true,"esq":true},explode:0,corte:false,alt:1.2,cortev:false,eixov:"x",posv:0.5,sel:null};
 const el=id=>document.getElementById(id);
 function chips(id,itens,ativo,cb,cls=""){const r=el(id);r.innerHTML="";itens.forEach(([v,t,cor])=>{const b=document.createElement("button");b.className="chip "+cls;
  b.innerHTML=(cor!=null?`<i style="background:#${cor.toString(16).padStart(6,"0")}"></i>`:"")+esc(t);b.setAttribute("aria-pressed",ativo(v));b.onclick=()=>{cb(v);atualizar()};r.appendChild(b)})}
@@ -350,7 +480,7 @@ function ui(){
  chips("andares",[[-1,"Todos"],...D.andares.map((A,i)=>[i,A.nome.replace("Pavimento ","").replace("ºPavimento","º pav.")])],v=>v===S.andar,v=>{S.andar=v;S.sel=null;enquadrar(false)});
  chips("modos",[["paredes","Paredes"],["paginacao","Paginação (blocos)"],["ambientes","Ambientes"]],v=>v===S.modo,v=>{S.modo=v;if(S.sel)limparSel()});
  const fs=[["estrutural","Estrutural",COR_PAREDE["estrutural"]],["vedação","Vedação",COR_PAREDE["vedação"]],["a definir","A definir",COR_PAREDE["a definir"]],
-  ["concreto","Pilares/concreto",COR_PAREDE["concreto"]],["muro","Muros",COR_PAREDE["muro"]],["ext","Externas"],["int","Internas"],["laje","Lajes"]];
+  ["concreto","Pilares/concreto",COR_PAREDE["concreto"]],["muro","Muros",COR_PAREDE["muro"]],["ext","Externas"],["int","Internas"],["laje","Lajes"],["esq","Esquadrias",0x9CC8E8]];
  if(S.modo==="paginacao")fs.splice(5,0,["cintas","Destacar cintas, vergas e contravergas",0xF2B24C],["graute","Pontos de graute",0x1F4E8C]);
  chips("filtros",fs,v=>S.filt[v],v=>S.filt[v]=!S.filt[v],"f");
 }
@@ -359,7 +489,7 @@ function atualizar(){
  const ii=S.andar;
  andares.forEach((F,i)=>{const acima=ii>=0&&i>ii,abaixo=ii>=0&&i<ii;
   F.g.visible=!acima;F.g.position.y=F.A.z+i*S.explode;
-  F.mats.forEach(m=>{m.transparent=abaixo;m.opacity=abaixo?0.12:1;m.depthWrite=!abaixo});
+  F.mats.forEach(m=>{const b=m.userData.op??1;m.transparent=abaixo||b<1;m.opacity=abaixo?0.12*b:b;m.depthWrite=!(abaixo||b<1)});
   const blocos=S.modo==="paginacao"&&F.pecas.length>0;
   F.paredes.forEach(me=>{const u=me.userData;me.visible=S.filt[u.tipoParede]!==false&&S.filt[u.fachada?"ext":"int"]
     &&!(blocos&&(u.tipoParede==="estrutural"||u.tipoParede==="vedação"));
@@ -367,12 +497,18 @@ function atualizar(){
   F.pecas.forEach(me=>{const u=me.userData;me.visible=blocos&&S.filt[u.tipoParede]!==false&&S.filt[u.fachada?"ext":"int"];
    const apagado=S.filt.cintas&&u.cat==="blo";me.material.transparent=abaixo||apagado;me.material.opacity=abaixo?0.12:(apagado?0.1:1);me.material.depthWrite=!(abaixo||apagado)});
   F.grauteM.forEach(me=>{me.visible=blocos&&S.filt.graute&&S.filt.estrutural});
+  F.esq.forEach(me=>{me.visible=S.filt.esq&&S.modo!=="ambientes"});
   F.ambs.forEach(me=>{me.material.color.setHex(S.modo==="ambientes"||me===S.sel?.obj?(me===S.sel?.obj?SEL:COR_AMB[me.userData.a.tipo]):0xE4E1D8)});
   F.g.children.forEach(c=>{if(c.userData.laje)c.visible=S.filt.laje});
  });
  // corte horizontal no andar selecionado (ou no térreo em "Todos")
  const ref=ii>=0?andares[ii]:andares.find(F=>/t[ée]rreo/i.test(F.A.nome))||andares[0];
  plano.constant=S.corte?ref.g.position.y+S.alt:1e6;
+ // corte vertical: plano transversal (X) ou longitudinal (Z) numa posição do prédio
+ if(S.cortev){const B=new THREE.Box3();andares.forEach(F=>{if(F.g.visible)B.expandByObject(F.g)});
+  if(S.eixov==="x"){planoV.normal.set(-1,0,0);planoV.constant=B.min.x+S.posv*(B.max.x-B.min.x)}
+  else{planoV.normal.set(0,0,-1);planoV.constant=B.min.z+S.posv*(B.max.z-B.min.z)}}
+ else planoV.constant=1e6;
  rotulos();resumo();legenda();
 }
 function rotulos(){
@@ -455,7 +591,7 @@ canvas.addEventListener("pointerup",e=>{if(!down||Math.hypot(e.clientX-down[0],e
  const alvo=pick.filter(o=>{let p=o;while(p){if(!p.visible)return false;p=p.parent}const ia=o.parent.userData.ia;
   if(S.andar>=0&&ia!==S.andar)return false;if(o.userData.tipo==="par"&&S.modo==="ambientes")return false;
   if(o.userData.tipo==="pec"&&S.filt.cintas&&o.userData.cat==="blo")return false;return true});
- const hs=ray.intersectObjects(alvo,false).filter(h=>{if(!S.corte)return true;return h.point.y<=plano.constant+1e-3});
+ const hs=ray.intersectObjects(alvo,false).filter(h=>(!S.corte||h.point.y<=plano.constant+1e-3)&&planoV.distanceToPoint(h.point)>=-1e-3);
  if(hs.length)selecionar(hs[0]);else{limparSel();el("info").innerHTML='<h3>Seleção</h3><div class="mut">Toque ou clique num ambiente ou numa parede.</div>';atualizar()}});
 // ---------- câmera
 function caixaVisivel(){const b=new THREE.Box3();andares.forEach((F,i)=>{if(S.andar<0||i===S.andar)b.expandByObject(F.g)});return b}
@@ -471,6 +607,9 @@ el("cams").innerHTML="";[["iso","Isométrica"],["planta","Planta"],["cima","Lado
  const b=document.createElement("button");b.className="chip";b.textContent=t;b.title="Lados como na planta 2D";b.onclick=()=>enquadrar(false,v);el("cams").appendChild(b)});
 el("explode").oninput=e=>{S.explode=+e.target.value;atualizar()};
 el("corte").onchange=e=>{S.corte=e.target.checked;el("altcorte").disabled=!S.corte;atualizar()};
+el("cortev").onchange=e=>{S.cortev=e.target.checked;el("eixov").disabled=el("posv").disabled=!S.cortev;atualizar()};
+el("eixov").onchange=e=>{S.eixov=e.target.value;atualizar()};
+el("posv").oninput=e=>{S.posv=+e.target.value;atualizar()};
 el("altcorte").oninput=e=>{S.alt=+e.target.value;el("altv").textContent=nf(S.alt)+" m";atualizar()};
 el("handle").onclick=()=>el("painel").classList.toggle("min");
 function redim(){const w=window.innerWidth,h=window.innerHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix()}
