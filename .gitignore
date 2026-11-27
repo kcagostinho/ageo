@@ -1,0 +1,4 @@
+# dados das obras (projetos de clientes) e caches
+leitor/obras/
+__pycache__/
+*.pyc
