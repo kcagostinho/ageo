@@ -26,6 +26,8 @@ from leitor.pe_direito import ler_pe_direito   # noqa: E402
 from leitor import quantitativos as Q          # noqa: E402
 from leitor import paredes as PAR              # noqa: E402
 from leitor import saida_paredes as SP         # noqa: E402
+from leitor import paginacao as PG             # noqa: E402
+from leitor import saida_paginacao as SPG      # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
 from leitor.esquadrias import ler_esquadrias   # noqa: E402
 from leitor.ingestao import extrair            # noqa: E402
@@ -142,6 +144,16 @@ def medir(pdf: Path, saida: Path, obra: str) -> dict:
              "premissas": {"pe_direito_m": pd, "fonte_pe_direito": fontes,
                            "altura_padrao_m": Q.PADRAO_ALTURA}}
     dados["quantitativos"] = Q.calcular(dados, pd)
+    # paginação estimada, famílias 29 e 39 (detalhe bloco a bloco do primeiro pavimento-tipo)
+    v_tipo = next((v["id"] for v in vistas_out if "1º" in v["titulo"]), None)
+    dados["paginacao"] = {"vista_detalhe": v_tipo}
+    for fam in ("29", "39"):
+        por, det = PG.paginar(dados, fam, guardar_vista=v_tipo)
+        tit = next(v["titulo"] for v in vistas_out if v["id"] == v_tipo) if v_tipo else None
+        area = sum(p["comprimento_m"] * pd.get(p["pavimento"], 2.6) - sum(x["largura_m"] * (x.get("altura_m") or 2.1) for x in p["vaos"])
+                   for p in paredes_out if p["vista"] == v_tipo and p["tipo"] == "estrutural")
+        dados["paginacao"][fam] = {"por_pavimento": {k: dict(v) for k, v in por.items()}, "detalhes": det,
+                                   "area_estrutural_tipo_m2": area}
     return dados
 
 
@@ -336,8 +348,11 @@ def planilha(dados: dict, destino: Path):
         ca.cell(row=i, column=7, value=v["n_cotas"])
         ca.cell(row=i, column=8, value=(v["dispersao_pct"] or 0) / 100).number_format = "0.00%"
     SP.abas(wb, dados, _cabecalho)
-    ordem_abas = ["Leia-me", "Resumo", "Resumo quantitativos", "Resumo paredes", "Quantitativos", "Paredes", "Ambientes",
-                  "Esquadrias", "Premissas", "Calibração"]
+    if dados.get("paginacao", {}).get("vista_detalhe"):
+        SPG.abas(wb, dados, _cabecalho)
+    ordem_abas = ["Leia-me", "Resumo", "Resumo quantitativos", "Resumo paredes", "Paginação", "Quantitativos", "Paredes",
+                  "Paginação por parede", "Ambientes", "Esquadrias", "Premissas", "Calibração"]
+    ordem_abas = [n for n in ordem_abas if n in wb.sheetnames]
     wb._sheets = [wb[n] for n in ordem_abas]
     wb.save(destino)
 
@@ -496,6 +511,8 @@ def main():
     planilha(dados, a.saida / "medicao.xlsx")
     pagina_conferencia(dados, a.pdf, a.saida / "conferencia.html")
     SP.pagina(dados, a.pdf, a.saida / "paredes.html")
+    if dados.get("paginacao", {}).get("vista_detalhe"):
+        SPG.pagina(dados, a.pdf, a.saida / "paginacao.html")
     st = Counter(x["status"] for x in dados["ambientes"])
     print(f"{len(dados['vistas'])} vistas, {len(dados['ambientes'])} ambientes {dict(st)}, {len(dados['esquadrias'])} esquadrias, "
           f"{len(dados['paredes'])} paredes {dict(Counter(p['tipo'] for p in dados['paredes']))}")

@@ -2,7 +2,20 @@
 
 > **Objetivo:** transformar as paredes do projeto num modelo paramétrico (cada parede um objeto, com espessura, altura, encontros e vãos) e, a partir dele, contar **bloco inteiro, meio bloco, blocos de amarração, canaletas U/J e compensadores**, mais argamassa, graute, aço, telas e revestimentos ("massa"). A planilha final deve ter **todos os parâmetros de precificação** editáveis.
 
-Status: **B1 (modelo de paredes) feita** em 27/11/2026: `leitor/leitor/paredes.py`, aba Paredes da planilha e página `paredes.html`. Próximo: B2 (paginação).
+Status em 27/11/2026:
+- **B1 (modelo de paredes) feita:** `leitor/leitor/paredes.py`, aba Paredes e página `paredes.html`.
+- **B2 (paginação) feita:** `leitor/leitor/paginacao.py`, abas Paginação e Paginação por parede, página `paginacao.html`, com comparação das famílias 29 e 39.
+- Próximo: B3 (argamassa, graute, aço, telas, gesso, pintura) e B4 (preço).
+
+### Resultado da B2 (por pavimento-tipo; os 5 são iguais)
+
+| | Família 29 | Família 39 |
+|---|---|---|
+| Peças estruturais (inteiro + meio + especiais + canaletas) | 4.027 (16,5/m²) | 3.046 (12,5/m²) |
+| Linhas estruturais que fecham no módulo | 3 de 14 | 8 de 14 |
+| Cortes em trecho corrido / junto a vão | 283 / 499 | 242 / 512 |
+
+A família 39 encaixa melhor nesta arquitetura e usa 24% menos peças. Nas duas famílias, a maior parte dos cortes vem da largura e da posição de portas e janelas fora do módulo: compatibilizar isso com o arquiteto elimina a maioria deles.
 
 ---
 

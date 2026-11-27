@@ -15,6 +15,7 @@ Saídas em `--saida`:
 | `medicao.xlsx` | Resumo por pavimento; **quantitativos por ambiente** (piso, teto, rodapé, parede bruta/líquida) e resumo por tipo de ambiente; ambientes (rótulo × medida); esquadrias; premissas (pé-direito editável); calibração |
 | `conferencia.html` | Prancha com cada ambiente desenhado e colorido pelo status, para conferência visual |
 | `paredes.html` | Modelo de paredes: cada parede com eixo e espessura, colorida por tipo (estrutural, vedação…). Clique para reclassificar e baixe os ajustes |
+| `paginacao.html` | Paginação estimada: elevação de cada parede bloco a bloco, famílias 29 e 39, com comparação de peças e cortes |
 | `obra.json` | Tudo acima com os polígonos, para as próximas fases (lacunas, EAP) |
 
 ## Como mede
@@ -34,6 +35,11 @@ Saídas em `--saida`:
     - Unidades (apartamentos) = ambientes ligados por porta sem passar pelo núcleo.
     - Classificação inicial: fachada, divisa entre unidades e núcleo = estrutural; interna da unidade = vedação; pavimentos sem unidades = a definir; muros e pilares à parte.
     - Ajustes manuais em `obras/<obra>/ajustes_paredes.json`.
+11. **Paginação** (`paginacao.py`): fiada a fiada, por linha de parede (paredes colineares unidas).
+    - Cantos em L alternados; T com bloco especial; família 39 com bloco 34 no canto.
+    - Vergas e contravergas em canaleta; cinta de respaldo (J na fachada).
+    - Meio bloco junto a vãos nas fiadas pares; sobras fora do módulo contadas como corte.
+    - Gera a comparação das famílias 29 e 39 e o ajuste que cada parede precisaria para fechar no módulo.
 9. **Quantitativos** (`quantitativos.py`): contorno de cada ambiente classificado em parede, vão ou aberto (guarda-corpo, lado aberto).
    - Piso = área. Teto = área coberta.
    - Rodapé = contorno com parede − portas.
