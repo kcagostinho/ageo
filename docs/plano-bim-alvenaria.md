@@ -2,7 +2,7 @@
 
 > **Objetivo:** transformar as paredes do projeto num modelo paramétrico (cada parede um objeto, com espessura, altura, encontros e vãos) e, a partir dele, contar **bloco inteiro, meio bloco, blocos de amarração, canaletas U/J e compensadores**, mais argamassa, graute, aço, telas e revestimentos ("massa"). A planilha final deve ter **todos os parâmetros de precificação** editáveis.
 
-Status: planejamento · 27/11/2026 · continua a Fase 1 (medição), já concluída
+Status: **B1 (modelo de paredes) feita** em 27/11/2026: `leitor/leitor/paredes.py`, aba Paredes da planilha e página `paredes.html`. Próximo: B2 (paginação).
 
 ---
 
@@ -114,6 +114,14 @@ A B1 não depende das decisões abaixo e pode começar já.
 ---
 
 ## 6. Decisões e dados necessários
+
+**Respondido (27/11/2026):**
+- **Bloco de concreto.** A família (29 ou 39) ainda não está definida: a B2 vai paginar com as duas e comparar o encaixe na arquitetura (cortes, compensadores, nº de blocos) para ajudar a escolher.
+- **Vedação em bloco de 9 cm.** Atenção: a arquitetura desenha as divisórias com 15 cm. Com bloco de 9 cm + gesso, a parede fica com cerca de 10 cm, e os ambientes ganham uns 5 cm a cada divisória. Isso pede compatibilização com o arquiteto.
+- **Interno:** fundo preparador + gesso direto no bloco.
+- **Fachada:** pintura projetada direto no bloco, sem emboço. O bloco da fachada precisa ter padrão de alvenaria aparente (faces e arestas regulares, junta bem acabada).
+
+**Pendente:**
 
 1. **Bloco:** concreto ou cerâmico? Família 29 (módulo 15) ou 39 (módulo 20)? Largura do bloco de vedação?
 2. **fbk por pavimento:** do engenheiro. Se ainda não houver, uso premissa por faixa (maior embaixo, menor em cima).

@@ -14,6 +14,7 @@ Saídas em `--saida`:
 |---|---|
 | `medicao.xlsx` | Resumo por pavimento; **quantitativos por ambiente** (piso, teto, rodapé, parede bruta/líquida) e resumo por tipo de ambiente; ambientes (rótulo × medida); esquadrias; premissas (pé-direito editável); calibração |
 | `conferencia.html` | Prancha com cada ambiente desenhado e colorido pelo status, para conferência visual |
+| `paredes.html` | Modelo de paredes: cada parede com eixo e espessura, colorida por tipo (estrutural, vedação…). Clique para reclassificar e baixe os ajustes |
 | `obra.json` | Tudo acima com os polígonos, para as próximas fases (lacunas, EAP) |
 
 ## Como mede
@@ -26,6 +27,13 @@ Saídas em `--saida`:
 6. **Esquadrias** (`esquadrias.py`): etiquetas `L x H` e peitoril.
 7. **Vãos**: cada porta/janela vira um vão ligado aos ambientes vizinhos — por pontas de parede, por vidro (janela alta acima do plano de corte, porta de correr) ou por folha de porta. Altura e peitoril vêm da etiqueta mais próxima de mesma largura.
 8. **Pé-direito** (`pe_direito.py`): lido da corrente de cotas verticais dos cortes (subsolo → térreo → tipos).
+10. **Paredes** (`paredes.py`): a região que não é espaço livre é rasterizada.
+    - Em cada coluna e linha da imagem, um trecho de 7 a 45 cm é a espessura de uma parede, e o meio do trecho é o eixo.
+    - Os eixos são unidos, prolongados até os encontros (L, T, X) e recebem os vãos.
+    - Os lados de cada parede saem dos polígonos dos ambientes.
+    - Unidades (apartamentos) = ambientes ligados por porta sem passar pelo núcleo.
+    - Classificação inicial: fachada, divisa entre unidades e núcleo = estrutural; interna da unidade = vedação; pavimentos sem unidades = a definir; muros e pilares à parte.
+    - Ajustes manuais em `obras/<obra>/ajustes_paredes.json`.
 9. **Quantitativos** (`quantitativos.py`): contorno de cada ambiente classificado em parede, vão ou aberto (guarda-corpo, lado aberto).
    - Piso = área. Teto = área coberta.
    - Rodapé = contorno com parede − portas.

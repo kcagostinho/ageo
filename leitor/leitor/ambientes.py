@@ -213,7 +213,8 @@ def _achar(regioes, x, y):
 
 
 def detectar(pag: Pagina, caixa, m_por_pt: float, vista: str = "", eps: float = 0.3,
-             camadas=CAMADAS_LIMITE, faixa_fina_m: float = 0.20, vaos_saida: list | None = None) -> list[Ambiente]:
+             camadas=CAMADAS_LIMITE, faixa_fina_m: float = 0.20, vaos_saida: list | None = None,
+             contexto: dict | None = None) -> list[Ambiente]:
     """Mede os ambientes rotulados de uma vista.
 
     Duas leituras: (A) só paredes, esquadrias e linhas de apoio; (B) igual, mais as linhas de
@@ -402,4 +403,7 @@ def detectar(pag: Pagina, caixa, m_por_pt: float, vista: str = "", eps: float = 
                 d = abs(amb.divergencia_pct)
                 amb.status = "ok" if d <= 2 else ("conferir" if d <= 10 else "divergente")
         ambientes.append(amb)
+    if contexto is not None:
+        # geometria de apoio para o modelo de paredes: tudo que não é espaço livre é parede/vão
+        contexto.update(caixa=c, espacos=leitura_a[0], externo=leitura_a[1], vaos=reg_vaos)
     return ambientes

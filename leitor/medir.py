@@ -24,6 +24,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from leitor.ambientes import detectar          # noqa: E402
 from leitor.pe_direito import ler_pe_direito   # noqa: E402
 from leitor import quantitativos as Q          # noqa: E402
+from leitor import paredes as PAR              # noqa: E402
+from leitor import saida_paredes as SP         # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
 from leitor.esquadrias import ler_esquadrias   # noqa: E402
 from leitor.ingestao import extrair            # noqa: E402
@@ -35,13 +37,14 @@ STATUS_TXT = {"ok": "Conferido", "conferir": "Conferir", "divergente": "Divergen
 
 def medir(pdf: Path, saida: Path, obra: str) -> dict:
     paginas = extrair(pdf, cache_dir=saida.parent / "_cache")
-    vistas_out, ambientes_out, esquadrias_out, vaos_out = [], [], [], []
+    vistas_out, ambientes_out, esquadrias_out, vaos_out, paredes_out = [], [], [], [], []
     for pag in paginas:
         for v in encontrar_vistas(pag):
             cal = calibrar(pag, v.caixa)
             m = cal.m_por_pt if cal else v.m_por_pt_nominal
             vs: list = []
-            ambs = detectar(pag, v.caixa, m, v.titulo, vaos_saida=vs)
+            ctx: dict = {}
+            ambs = detectar(pag, v.caixa, m, v.titulo, vaos_saida=vs, contexto=ctx)
             esqs = ler_esquadrias(pag, v.caixa)
             if not ambs and not esqs:
                 continue
@@ -59,8 +62,22 @@ def medir(pdf: Path, saida: Path, obra: str) -> dict:
                 "m_por_pt": m, "calibrada": bool(cal),
                 "n_cotas": cal.n_cotas if cal else 0, "dispersao_pct": cal.desvio_pct if cal else None,
             })
-            for a in ambs:
+            # modelo de paredes ("BIM de alvenaria")
+            ad = [{"nome": a.nome, "poligono": a.poligono, "furos": a.furos, "rotulo_xy": a.rotulo_xy,
+                   "_rotulo": f"A{i:02d} · {a.nome}"} for i, a in enumerate(ambs)]
+            unidades = PAR.agrupar_unidades(ad, ctx["vaos"], m)
+            pws = PAR.extrair(ctx, ad, v.titulo, m, vid)
+            PAR.classificar(pws, unidades, tem_unidades=bool(unidades))
+            nome_lado = {x["_rotulo"]: (f'{unidades[x["_rotulo"]]} · ' if x["_rotulo"] in unidades else "") + x["nome"] for x in ad}
+            for pw in pws:
+                d_ = pw.__dict__.copy()
+                d_["lado_a"] = [nome_lado.get(l, l) for l in pw.lado_a]
+                d_["lado_b"] = [nome_lado.get(l, l) for l in pw.lado_b]
+                d_["vista"] = vid
+                paredes_out.append(d_)
+            for i, a in enumerate(ambs):
                 ambientes_out.append({
+                    "unidade": unidades.get(f"A{i:02d} · {a.nome}"),
                     "vista": vid, "pavimento": v.titulo, "pagina": pag.numero, "nome": a.nome,
                     "area_rotulo_m2": a.area_rotulo_m2,
                     "area_m2": round(a.area_m2, 3) if a.area_m2 is not None else None,
@@ -92,8 +109,21 @@ def medir(pdf: Path, saida: Path, obra: str) -> dict:
     ambientes_out.sort(key=lambda a: ordem[a["vista"]])
     esquadrias_out.sort(key=lambda e: ordem[e["vista"]])
     vaos_out.sort(key=lambda x: ordem[x["vista"]])
+    paredes_out.sort(key=lambda x: ordem[x["vista"]])
     # vão ↔ etiqueta (altura e peitoril)
     Q.casar_etiquetas(vaos_out, esquadrias_out, {v["id"]: v["m_por_pt"] for v in vistas_out})
+    por_id = {x["id"]: x for x in vaos_out}
+    for pw in paredes_out:
+        for vv in pw["vaos"]:
+            x = por_id.get(vv["vao"], {})
+            vv.update(altura_m=x.get("altura_m"), peitoril_m=x.get("peitoril_m"))
+    # ajustes manuais de classificação (baixados da página paredes.html)
+    arq_aj = saida.parent / "ajustes_paredes.json"
+    if arq_aj.exists():
+        aj = json.loads(arq_aj.read_text())
+        for pw in paredes_out:
+            if pw["id"] in aj:
+                pw["tipo"], pw["motivo"] = aj[pw["id"]], "ajuste manual"
     # pé-direito: dos cortes; um premissas.json ao lado da saída pode sobrescrever
     pavs = [v["titulo"] for v in vistas_out]
     pd, fonte = ler_pe_direito(paginas, pavs)
@@ -108,6 +138,7 @@ def medir(pdf: Path, saida: Path, obra: str) -> dict:
             pd[p], fontes[p] = 2.60, "padrão (não encontrado nos cortes)"
     dados = {"obra": obra, "documento": pdf.name, "gerado_em": date.today().isoformat(),
              "vistas": vistas_out, "ambientes": ambientes_out, "esquadrias": esquadrias_out, "vaos": vaos_out,
+             "paredes": paredes_out,
              "premissas": {"pe_direito_m": pd, "fonte_pe_direito": fontes,
                            "altura_padrao_m": Q.PADRAO_ALTURA}}
     dados["quantitativos"] = Q.calcular(dados, pd)
@@ -304,7 +335,9 @@ def planilha(dados: dict, destino: Path):
         ca.cell(row=i, column=6, value=f'=IF(ISNUMBER(E{i}),E{i}/D{i}-1,"")').number_format = "+0.00%;-0.00%"
         ca.cell(row=i, column=7, value=v["n_cotas"])
         ca.cell(row=i, column=8, value=(v["dispersao_pct"] or 0) / 100).number_format = "0.00%"
-    ordem_abas = ["Leia-me", "Resumo", "Resumo quantitativos", "Quantitativos", "Ambientes", "Esquadrias", "Premissas", "Calibração"]
+    SP.abas(wb, dados, _cabecalho)
+    ordem_abas = ["Leia-me", "Resumo", "Resumo quantitativos", "Resumo paredes", "Quantitativos", "Paredes", "Ambientes",
+                  "Esquadrias", "Premissas", "Calibração"]
     wb._sheets = [wb[n] for n in ordem_abas]
     wb.save(destino)
 
@@ -462,8 +495,10 @@ def main():
     (a.saida / "obra.json").write_text(json.dumps(dados, ensure_ascii=False, indent=1), encoding="utf-8")
     planilha(dados, a.saida / "medicao.xlsx")
     pagina_conferencia(dados, a.pdf, a.saida / "conferencia.html")
+    SP.pagina(dados, a.pdf, a.saida / "paredes.html")
     st = Counter(x["status"] for x in dados["ambientes"])
-    print(f"{len(dados['vistas'])} vistas, {len(dados['ambientes'])} ambientes {dict(st)}, {len(dados['esquadrias'])} esquadrias")
+    print(f"{len(dados['vistas'])} vistas, {len(dados['ambientes'])} ambientes {dict(st)}, {len(dados['esquadrias'])} esquadrias, "
+          f"{len(dados['paredes'])} paredes {dict(Counter(p['tipo'] for p in dados['paredes']))}")
     print("saída:", a.saida)
 
 
