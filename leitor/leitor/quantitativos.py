@@ -35,29 +35,34 @@ def classificar(nome: str) -> str:
 
 
 def casar_etiquetas(vaos: list[dict], esquadrias: list[dict], m_por_pt: dict[str, float]):
-    """Liga cada vão à etiqueta (L x H) mais próxima do mesmo tipo e mesma largura."""
-    usadas = set()
-    for v in sorted(vaos, key=lambda v: v["largura_m"]):
+    """Liga cada vão à etiqueta (L x H) mais próxima do mesmo tipo e mesma largura.
+    Devolve os índices das etiquetas usadas."""
+    # todos os pares possíveis (mesma vista, tipo e largura, até 3 m), casados do mais perto para
+    # o mais longe: um vão não "rouba" a etiqueta que está mais perto de outro vão
+    pares = []
+    for j, v in enumerate(vaos):
         if v["tipo"] == "varanda":      # altura e peitoril vêm da premissa da varanda
             v.setdefault("etiqueta", True)
             continue
         m = m_por_pt[v["vista"]]
-        cands = []
         for i, e in enumerate(esquadrias):
-            if i in usadas or e["vista"] != v["vista"] or e["tipo"] != v["tipo"]:
-                continue
-            if abs(e["largura_m"] - v["largura_m"]) > 0.06:
+            if e["vista"] != v["vista"] or e["tipo"] != v["tipo"] or abs(e["largura_m"] - v["largura_m"]) > 0.06:
                 continue
             d = math.dist(e["xy"], v["centro"]) * m
             if d <= 3.0:
-                cands.append((d, i))
-        if cands:
-            _, i = min(cands)
-            usadas.add(i)
-            e = esquadrias[i]
-            v.update(altura_m=e["altura_m"], peitoril_m=e["peitoril_m"], etiqueta=True)
-        else:
+                pares.append((d, j, i))
+    usadas, feitos = set(), set()
+    for d, j, i in sorted(pares):
+        if j in feitos or i in usadas:
+            continue
+        feitos.add(j)
+        usadas.add(i)
+        e = esquadrias[i]
+        vaos[j].update(altura_m=e["altura_m"], peitoril_m=e["peitoril_m"], etiqueta=True)
+    for j, v in enumerate(vaos):
+        if v["tipo"] != "varanda" and j not in feitos:
             v.update(altura_m=PADRAO_ALTURA[v["tipo"]], peitoril_m=None, etiqueta=False)
+    return usadas
 
 
 def calcular(dados: dict, pe_direito: dict[str, float], pd_padrao: float = 2.60) -> list[dict]:

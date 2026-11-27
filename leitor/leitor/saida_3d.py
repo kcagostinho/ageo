@@ -126,7 +126,7 @@ def montar(dados: dict) -> dict:
                         kind = "portao"
                     elif vao_por_id.get(x["vao"], {}).get("por_vidro"):
                         kind = "vidro"
-                    elif any("Elevador" in l for l in p["lado_a"] + p["lado_b"]):
+                    elif vao_por_id.get(x["vao"], {}).get("elevador") or any("Elevador" in l for l in p["lado_a"] + p["lado_b"]):
                         kind = "elevador"
                     else:
                         kind = "madeira"
@@ -147,9 +147,15 @@ def montar(dados: dict) -> dict:
                 a_, b_ = conv(mi["eixo"][:2]), conv(mi["eixo"][2:])
                 eixos.append(LineString([a_, b_]))
                 termo = "terreo" in _sa(v["titulo"])
+                vaos_mi = []
+                if mi.get("vao"):                          # porta/portão que ocupa a lacuna do muro
+                    q = mi["vao"]
+                    base = 0.0 if q["tipo"] == "porta" else (q.get("peitoril_m") or 1.0)
+                    kind = "portao" if q["tipo"] == "porta" else "janela"
+                    vaos_mi = [[q["tipo"], 0.0, _r(eixos[-1].length), _r(base, 2), _r(base + (q.get("altura_m") or 2.1), 2), kind]]
                 par_out.append({"id": f"{v['id']}-MI{n_}", "tipo": "muro" if termo else "a definir", "fachada": True,
                                 "a": a_, "b": b_, "t": mi["espessura_m"], "comp": round(eixos[-1].length, 3), "enc": ["—", "—"],
-                                "la": ["—"], "lb": ["—"], "vaos": [],
+                                "la": ["—"], "lb": ["—"], "vaos": vaos_mi,
                                 "h": ALTURAS["muro_m"] if termo else None,
                                 "motivo": "muro inclinado (divisa)" + (f", altura assumida {ALTURAS['muro_m']:.2f} m" if termo else ", arrimo do subsolo a definir")})
             def picado(x):

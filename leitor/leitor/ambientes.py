@@ -228,7 +228,20 @@ def _varandas(pag: Pagina, c, m_por_pt: float, rotulos) -> list[tuple]:
         if min(((r.x - cx) ** 2 + (r.y - cy) ** 2) ** 0.5 for r in alvo) * m_por_pt > 3.0:
             continue
         res.add(tuple(round(v, 2) for v in rect))
-    return sorted(res)
+    # o corrimão tem várias linhas (faces e eixo) e, se ele estiver fora do meio da mureta, cada
+    # linha dá um retângulo um pouco diferente: retângulos que se sobrepõem são a mesma varanda
+    out: list[list[float]] = []
+    for r in sorted(res):
+        for u in out:
+            ix = min(r[2], u[2]) - max(r[0], u[0])
+            iy = min(r[3], u[3]) - max(r[1], u[1])
+            menor = min((r[2] - r[0]) * (r[3] - r[1]), (u[2] - u[0]) * (u[3] - u[1]))
+            if ix > 0 and iy > 0 and ix * iy > 0.5 * menor:
+                u[:] = [min(r[0], u[0]), min(r[1], u[1]), max(r[2], u[2]), max(r[3], u[3])]
+                break
+        else:
+            out.append(list(r))
+    return [tuple(u) for u in out]
 
 
 def _regioes(segs, retangulos, c, m_por_pt, eps, faixa_fina_m):
@@ -392,6 +405,43 @@ def detectar(pag: Pagina, caixa, m_por_pt: float, vista: str = "", eps: float = 
                          "altura_m": round(PREMISSA_VARANDA["topo_m"] - PREMISSA_VARANDA["peitoril_m"], 2),
                          "etiqueta": True, "por_guarda_corpo": True})
         buf_vaos.append(box(*rect).buffer(2.0, join_style="mitre"))
+    # porta do elevador: em alguns pavimentos a abertura do poço não tem porta desenhada (vem com o
+    # equipamento) e fica como passagem livre. Uma passagem livre de 0,6 a 1,2 m encostada no
+    # ambiente "Elevador" é a porta de pavimento do elevador.
+    portas_elevador = []
+    for r in rotulos:
+        if r.nome.strip().lower() != "elevador" or not livres:
+            continue
+        _, reg_el, ext = _achar(leitura_a, r.x, r.y)
+        if reg_el is None or ext or reg_el.area * m_por_pt ** 2 > 12:
+            # sem a porta, o poço se junta ao hall: olha a leitura com as passagens fechadas
+            fechada = _regioes(base + piso, rets + livres, c, m_por_pt, eps, faixa_fina_m)
+            _, reg_el, ext = _achar(fechada, r.x, r.y)
+            if reg_el is None or ext or reg_el.area * m_por_pt ** 2 > 12:
+                continue
+        ja = [box(*x["retangulo"]) for x in reg_vaos]
+        cands = []
+        for b in livres:
+            bb = box(*b)
+            larg = max(b[2] - b[0], b[3] - b[1]) * m_por_pt
+            if 0.6 <= larg <= 1.2 and bb.buffer(1.0).intersects(reg_el) and not any(bb.intersects(q) for q in ja):
+                cands.append((bb.distance(Point(r.x, r.y)), b))
+        if not cands:
+            continue
+        b = min(cands)[1]
+        dx, dy = b[2] - b[0], b[3] - b[1]
+        reg_vaos.append({"id": f"{vista or pag.numero}-V{len(reg_vaos) + 1:03d}", "tipo": "porta",
+                         "largura_m": round(max(dx, dy) * m_por_pt, 3), "espessura_m": round(min(dx, dy) * m_por_pt, 3),
+                         "centro": [round((b[0] + b[2]) / 2, 2), round((b[1] + b[3]) / 2, 2)],
+                         "retangulo": [round(v, 2) for v in b], "ambientes": [], "elevador": True})
+        buf_vaos.append(box(*b).buffer(2.0, join_style="mitre"))
+        portas_elevador.append(tuple(b))
+    if portas_elevador:
+        # é uma porta como as outras: fecha a abertura em todas as leituras (ambientes e paredes)
+        rets = rets + portas_elevador
+        leitura_a = _regioes(base, rets, c, m_por_pt, eps, faixa_fina_m)
+        leitura_b = _regioes(base + piso, rets, c, m_por_pt, eps, faixa_fina_m)
+        cont_a, cont_b = contagem(leitura_a), contagem(leitura_b)
     if vaos_saida is not None:
         vaos_saida.extend(reg_vaos)
     arv_vaos = shapely.STRtree(buf_vaos) if buf_vaos else None

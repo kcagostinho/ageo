@@ -34,6 +34,11 @@ Saídas em `--saida`:
 6. **Esquadrias** (`esquadrias.py`): etiquetas `L x H` e peitoril.
 7. **Vãos**: cada porta/janela vira um vão ligado aos ambientes vizinhos — por pontas de parede, por vidro (janela alta acima do plano de corte, porta de correr) ou por folha de porta. Altura e peitoril vêm da etiqueta mais próxima de mesma largura.
 8. **Pé-direito** (`pe_direito.py`): lido da corrente de cotas verticais dos cortes (subsolo → térreo → tipos).
+9. **Quantitativos** (`quantitativos.py`): contorno de cada ambiente classificado em parede, vão ou aberto (guarda-corpo, lado aberto).
+   - Piso = área. Teto = área coberta.
+   - Rodapé = contorno com parede − portas.
+   - Parede bruta = contorno com parede × pé-direito. Parede líquida = bruta − vãos.
+   - Na planilha, pé-direito, rodapé e paredes são fórmulas: mudar o pé-direito na aba Premissas recalcula tudo.
 10. **Paredes** (`paredes.py`): a região que não é espaço livre é rasterizada.
     - Em cada coluna e linha da imagem, um trecho de 7 a 45 cm é a espessura de uma parede, e o meio do trecho é o eixo.
     - Os eixos são unidos, prolongados até os encontros (L, T, X) e recebem os vãos.
@@ -53,24 +58,25 @@ Saídas em `--saida`:
     - telas nos encontros vedação × estrutural e encunhamento;
     - fundo preparador + gesso por dentro, cerâmica das áreas molhadas e pintura projetada na fachada, varandas e platibanda.
 13. **Cobertura e muros inclinados** (`cobertura.py`): parapeito, platibanda, águas do telhado (hachura `A-ROOF-PATT`), calhas e reservatórios da planta de cobertura; muros inclinados por pares de linhas paralelas de `A-WALL`.
-15. **Escadas** (`escada.py`): a numeração dos degraus dentro do ambiente "Escada…" dá os lances (números seguidos e alinhados), a profundidade do piso e o sentido de subida; o último número de um lance seguido de outro vira patamar; o maior número é a chegada no andar de cima. A largura vem das paredes (ou da metade da distância entre lances). O 3D desenha degraus, patamar, corrimão e guarda-corpo com o espelho = desnível dos cortes ÷ nº de espelhos.
 14. **Orçamento — B4** (`orcamento.py`, `sinapi.py`, `cub.py`, `saida_orcamento.py`):
     - baixa o SINAPI do mês na Caixa (só SP fica em `obras/_sinapi/`) e o CUB do SindusCon-SP;
     - material contado na paginação × insumo SINAPI; mão de obra da alvenaria tirada da composição SINAPI; graute, armação e revestimentos por composição completa;
     - abas Orçamento, Preços (desoneração, BDI, fbk por pavimento, cotações) e Custo por pavimento, todas com fórmulas;
     - rateio do custo por parede, ambiente e cobertura para o 3D (a soma confere com o total);
     - opções: `--sinapi AAAA-MM`, `--desonerado`, `--sem-preco`; premissas da obra na chave `orcamento` do `premissas.json`.
-9. **Quantitativos** (`quantitativos.py`): contorno de cada ambiente classificado em parede, vão ou aberto (guarda-corpo, lado aberto).
-   - Piso = área. Teto = área coberta.
-   - Rodapé = contorno com parede − portas.
-   - Parede bruta = contorno com parede × pé-direito. Parede líquida = bruta − vãos.
-   - Na planilha, pé-direito, rodapé e paredes são fórmulas: mudar o pé-direito na aba Premissas recalcula tudo.
-
+15. **Escadas** (`escada.py`): a numeração dos degraus dentro do ambiente "Escada…" dá os lances (números seguidos e alinhados), a profundidade do piso e o sentido de subida; o último número de um lance seguido de outro vira patamar; o maior número é a chegada no andar de cima. A largura vem das paredes (ou da metade da distância entre lances). O 3D desenha degraus, patamar, corrimão e guarda-corpo com o espelho = desnível dos cortes ÷ nº de espelhos.
+16. **Conferência automática** (`conferencia.py`, aba "Conferência" e terminal), a cada leitura:
+    - área medida × rótulo;
+    - cada etiqueta de esquadria com um vão, por pavimento (a porta do elevador, sem etiqueta, é contada à parte);
+    - um vão de varanda por ambiente de varanda;
+    - nenhum vão fora de parede;
+    - pavimentos repetidos idênticos à referência;
+    - escala única.
 ## Limitações conhecidas
 
 - Depende de PDF vetorial com camadas no padrão do CAD (nomes AIA: `A-WALL`, `A-DOOR`…). PDF escaneado não funciona.
 - Só mede ambientes que têm rótulo de área. A cobertura entra só no 3D (sem quantitativo na planilha). Terreno (planta de locação) e fachadas ficam para depois.
-- Paredes ortogonais. Vãos em paredes inclinadas não são fechados automaticamente.
+- Paredes ortogonais no modelo de alvenaria. Em muro inclinado, porta ou portão entra quando há uma etiqueta L × H da mesma largura da lacuna entre dois trechos do muro.
 
 Os arquivos das obras (`obras/`) ficam fora do git.
 

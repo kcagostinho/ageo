@@ -38,6 +38,7 @@ from leitor import orcamento as ORC            # noqa: E402
 from leitor import saida_orcamento as SORC     # noqa: E402
 from leitor import escada as ESC               # noqa: E402
 from leitor import repeticao as REP            # noqa: E402
+from leitor import conferencia as CONF         # noqa: E402
 from dataclasses import replace as dc_replace  # noqa: E402
 from shapely.geometry import Polygon as _Poly   # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
@@ -63,6 +64,47 @@ def _trecho_de_muro_inclinado(p: dict, eixos: list, m: float) -> bool:
         if ((mx - x0 - t * dx) ** 2 + (my - y0 - t * dy) ** 2) ** 0.5 * m < 0.35:
             return True
     return False
+
+
+def _vaos_em_muros_inclinados(muros: list, esquadrias: list, usadas: set, m_vista: dict) -> set:
+    """Uma etiqueta de porta/portão que não achou vão e tem a mesma largura (±10 cm) da lacuna entre
+    dois trechos alinhados de um muro inclinado, a até 3 m dela, vira um trecho de muro com o vão
+    ocupando toda a lacuna. Devolve os índices das etiquetas usadas."""
+    import math as _m
+    novas, novos = set(), []
+    for vid, m in m_vista.items():
+        ms = [x for x in muros if x["vista"] == vid]
+        lacunas = []
+        for i, a in enumerate(ms):
+            for b in ms[i + 1:]:
+                ea, eb = a["eixo"], b["eixo"]
+                ua = (ea[2] - ea[0], ea[3] - ea[1]); ub = (eb[2] - eb[0], eb[3] - eb[1])
+                la, lb = _m.hypot(*ua), _m.hypot(*ub)
+                if abs(ua[0] * ub[0] + ua[1] * ub[1]) / max(la * lb, 1e-9) < 0.97:
+                    continue
+                # pontas mais próximas dos dois trechos
+                pa = min(((ea[0], ea[1]), (ea[2], ea[3])), key=lambda q: min(_m.dist(q, eb[:2]), _m.dist(q, eb[2:])))
+                pb = min(((eb[0], eb[1]), (eb[2], eb[3])), key=lambda q: _m.dist(q, pa))
+                g = _m.dist(pa, pb) * m
+                # a lacuna tem de seguir a direção do muro
+                if g < 0.5 or abs((pb[0] - pa[0]) * ua[1] - (pb[1] - pa[1]) * ua[0]) / la * m > 0.10:
+                    continue
+                lacunas.append((pa, pb, g, a["espessura_m"]))
+        for pa, pb, g, esp in lacunas:
+            meio = ((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2)
+            cands = [(_m.dist(e["xy"], meio) * m, i) for i, e in enumerate(esquadrias)
+                     if i not in usadas and i not in novas and e["vista"] == vid and abs(e["largura_m"] - g) <= 0.10]
+            cands = [c for c in cands if c[0] <= 3.0]
+            if not cands:
+                continue
+            _, i = min(cands)
+            e = esquadrias[i]
+            novas.add(i)
+            novos.append({"vista": vid, "eixo": [round(pa[0], 2), round(pa[1], 2), round(pb[0], 2), round(pb[1], 2)],
+                          "espessura_m": esp, "vao": {"tipo": e["tipo"], "largura_m": e["largura_m"], "altura_m": e["altura_m"],
+                                                       "peitoril_m": e["peitoril_m"]}})
+    muros.extend(novos)
+    return novas
 
 
 def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
@@ -180,7 +222,15 @@ def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
     vaos_out.sort(key=lambda x: ordem[x["vista"]])
     paredes_out.sort(key=lambda x: ordem[x["vista"]])
     # vão ↔ etiqueta (altura e peitoril)
-    Q.casar_etiquetas(vaos_out, esquadrias_out, {v["id"]: v["m_por_pt"] for v in vistas_out})
+    m_vista = {v["id"]: v["m_por_pt"] for v in vistas_out}
+    usadas = Q.casar_etiquetas(vaos_out, esquadrias_out, m_vista)
+    # portas e portões em muro inclinado: a etiqueta que sobrou cabe na lacuna entre dois trechos do muro
+    usadas |= _vaos_em_muros_inclinados(muros_incl, esquadrias_out, usadas, m_vista)
+    for i, e in enumerate(esquadrias_out):
+        e["casada"] = i in usadas
+    sobra = [e for e in esquadrias_out if not e["casada"]]
+    if sobra:
+        print("atenção: etiquetas sem vão no modelo:", ", ".join(f'{e["pavimento"]} {e["tipo"]} {e["largura_m"]:.2f}×{e["altura_m"]:.2f}' for e in sobra))
     por_id = {x["id"]: x for x in vaos_out}
     for pw in paredes_out:
         for vv in pw["vaos"]:
@@ -482,7 +532,8 @@ def planilha(dados: dict, destino: Path):
         SINS.aba(wb, dados["insumos"], _cabecalho)
     if dados.get("orcamento"):
         SORC.abas(wb, dados, _cabecalho)
-    ordem_abas = ["Leia-me", "Resumo", "Orçamento (B4)", "Insumos (B3)", "Preços (B4)", "Custo por pavimento (B4)", "Resumo quantitativos", "Resumo paredes", "Paginação", "Quantitativos", "Paredes",
+    CONF.aba(wb, CONF.checar(dados), _cabecalho)
+    ordem_abas = ["Leia-me", "Conferência", "Resumo", "Orçamento (B4)", "Insumos (B3)", "Preços (B4)", "Custo por pavimento (B4)", "Resumo quantitativos", "Resumo paredes", "Paginação", "Quantitativos", "Paredes",
                   "Paginação por parede", "Ambientes", "Esquadrias", "Premissas", "Calibração"]
     ordem_abas = [n for n in ordem_abas if n in wb.sheetnames]
     wb._sheets = [wb[n] for n in ordem_abas]
@@ -661,6 +712,11 @@ def main():
     if dados.get("paginacao", {}).get("vista_detalhe"):
         SPG.pagina(dados, a.pdf, a.saida / "paginacao.html")
     S3D.gerar(dados, a.saida / "modelo3d.html")
+    conf = CONF.checar(dados)
+    falhas = [c for c in conf if not c[3]]
+    print(f"conferência: {len(conf) - len(falhas)} de {len(conf)} verificações ok")
+    for g, item, res, _ in falhas:
+        print(f"  CONFERIR {g} · {item}: {res}")
     st = Counter(x["status"] for x in dados["ambientes"])
     print(f"{len(dados['vistas'])} vistas, {len(dados['ambientes'])} ambientes {dict(st)}, {len(dados['esquadrias'])} esquadrias, "
           f"{len(dados['paredes'])} paredes {dict(Counter(p['tipo'] for p in dados['paredes']))}")

@@ -21,6 +21,14 @@ Atualizado em 27/11/2026.
   - a mesma paginação.
 - A medida fica 0,03% a 0,07% abaixo do rótulo em quase todos os ambientes. Na V.Gourmet fica 0,3% abaixo (2,413 contra 2,42 m²). Isso está dentro do arredondamento.
 
+### Corrimão das varandas fora de posição entre andares
+
+- O corrimão (3 linhas, em cima da mureta) está desenhado em posições que variam até 5 cm de um andar para outro:
+  - varandas da direita: 1º diferente dos demais;
+  - varandas da esquerda: 1º e 2º diferentes do 3º ao 5º.
+- A mureta é a mesma em todos. Na obra não muda nada, mas o desenho deveria ser igual nos 5 andares.
+- Isso fazia a leitura contar varanda em dobro em dois andares (5 no 2º, 6 no 4º). Já está corrigido: retângulos de varanda que se sobrepõem contam como uma só.
+
 ## 2. Térreo: rótulos não descontam pilares
 
 No térreo, pilares de concreto e um trecho de parede mais grossa avançam cerca de 5 cm para dentro de alguns ambientes. Os rótulos usam o retângulo cheio, com os mesmos números dos pavimentos tipo, onde esses pilares não existem.
