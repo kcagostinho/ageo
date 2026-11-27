@@ -22,6 +22,8 @@ from openpyxl.utils import get_column_letter
 
 sys.path.insert(0, str(Path(__file__).parent))
 from leitor.ambientes import detectar          # noqa: E402
+from leitor.pe_direito import ler_pe_direito   # noqa: E402
+from leitor import quantitativos as Q          # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
 from leitor.esquadrias import ler_esquadrias   # noqa: E402
 from leitor.ingestao import extrair            # noqa: E402
@@ -33,12 +35,13 @@ STATUS_TXT = {"ok": "Conferido", "conferir": "Conferir", "divergente": "Divergen
 
 def medir(pdf: Path, saida: Path, obra: str) -> dict:
     paginas = extrair(pdf, cache_dir=saida.parent / "_cache")
-    vistas_out, ambientes_out, esquadrias_out = [], [], []
+    vistas_out, ambientes_out, esquadrias_out, vaos_out = [], [], [], []
     for pag in paginas:
         for v in encontrar_vistas(pag):
             cal = calibrar(pag, v.caixa)
             m = cal.m_por_pt if cal else v.m_por_pt_nominal
-            ambs = detectar(pag, v.caixa, m, v.titulo)
+            vs: list = []
+            ambs = detectar(pag, v.caixa, m, v.titulo, vaos_saida=vs)
             esqs = ler_esquadrias(pag, v.caixa)
             if not ambs and not esqs:
                 continue
@@ -46,6 +49,9 @@ def medir(pdf: Path, saida: Path, obra: str) -> dict:
             if ambs and all(a.status in ("rotulos_juntos", "sem_poligono") for a in ambs):
                 continue
             vid = f"p{pag.numero}-{len(vistas_out) + 1}"
+            for x in vs:
+                x.update(vista=vid, pavimento=v.titulo)
+            vaos_out.extend(vs)
             vistas_out.append({
                 "id": vid, "pagina": pag.numero, "titulo": v.titulo, "escala_nominal": v.escala,
                 "caixa": [round(x, 2) for x in v.caixa],
@@ -61,6 +67,10 @@ def medir(pdf: Path, saida: Path, obra: str) -> dict:
                     "area_piso_m2": round(a.area_piso_m2, 3) if a.area_piso_m2 is not None else None,
                     "perimetro_m": round(a.perimetro_m, 3) if a.perimetro_m is not None else None,
                     "divergencia_pct": round(a.divergencia_pct, 2) if a.divergencia_pct is not None else None,
+                    "area_teto_m2": round(a.area_teto_m2, 3) if a.area_teto_m2 is not None else None,
+                    "perimetro_parede_m": round(a.perimetro_parede_m, 3) if a.perimetro_parede_m is not None else None,
+                    "sem_parede_m": round(a.sem_parede_m, 3) if a.sem_parede_m is not None else None,
+                    "vaos": a.vaos,
                     "status": a.status, "observacao": a.observacao,
                     "poligono": a.poligono, "furos": a.furos, "rotulo_xy": [round(x, 2) for x in a.rotulo_xy],
                 })
@@ -81,8 +91,27 @@ def medir(pdf: Path, saida: Path, obra: str) -> dict:
     ordem = {v["id"]: i for i, v in enumerate(vistas_out)}
     ambientes_out.sort(key=lambda a: ordem[a["vista"]])
     esquadrias_out.sort(key=lambda e: ordem[e["vista"]])
-    return {"obra": obra, "documento": pdf.name, "gerado_em": date.today().isoformat(),
-            "vistas": vistas_out, "ambientes": ambientes_out, "esquadrias": esquadrias_out}
+    vaos_out.sort(key=lambda x: ordem[x["vista"]])
+    # vão ↔ etiqueta (altura e peitoril)
+    Q.casar_etiquetas(vaos_out, esquadrias_out, {v["id"]: v["m_por_pt"] for v in vistas_out})
+    # pé-direito: dos cortes; um premissas.json ao lado da saída pode sobrescrever
+    pavs = [v["titulo"] for v in vistas_out]
+    pd, fonte = ler_pe_direito(paginas, pavs)
+    pd = {p: pd.get(p) for p in pavs}
+    fontes = {p: fonte if pd[p] else "" for p in pavs}
+    arq = saida.parent / "premissas.json"
+    if arq.exists():
+        for p, val in json.loads(arq.read_text()).get("pe_direito_m", {}).items():
+            pd[p], fontes[p] = val, "premissas.json"
+    for p in pavs:
+        if not pd[p]:
+            pd[p], fontes[p] = 2.60, "padrão (não encontrado nos cortes)"
+    dados = {"obra": obra, "documento": pdf.name, "gerado_em": date.today().isoformat(),
+             "vistas": vistas_out, "ambientes": ambientes_out, "esquadrias": esquadrias_out, "vaos": vaos_out,
+             "premissas": {"pe_direito_m": pd, "fonte_pe_direito": fontes,
+                           "altura_padrao_m": Q.PADRAO_ALTURA}}
+    dados["quantitativos"] = Q.calcular(dados, pd)
+    return dados
 
 
 # ---------------------------------------------------------------- planilha
@@ -114,6 +143,16 @@ def planilha(dados: dict, destino: Path):
         ("Status", True),
         ("Conferido: diferença até 2% · Conferir: 2% a 10% · Divergente: acima de 10%.", False),
         ("Garagens: o rótulo do arquiteto mede só a parte coberta; a coluna 'Piso total' traz a área inteira do piso.", False),
+        ("", False),
+        ("", False),
+        ("Quantitativos por ambiente (abas Quantitativos e Resumo quantitativos)", True),
+        ("• Piso = área do ambiente. Teto = área coberta (nas garagens, só o trecho sob a projeção do pavimento-tipo).", False),
+        ("• Rodapé = contorno junto a parede − larguras das portas.", False),
+        ("• Parede bruta = contorno junto a parede × pé-direito. Trechos sem parede (guarda-corpo, lado aberto da garagem) ficam de fora.", False),
+        ("• Vãos = largura × altura de cada porta e janela do contorno (altura pela etiqueta da planta). Parede líquida = bruta − vãos.", False),
+        ("• Parede de um ambiente = face voltada para ele; paredes entre dois ambientes aparecem uma vez em cada lado.", False),
+        ("• O critério de desconto de vãos do SINAPI (ex.: não descontar vãos pequenos) será aplicado na EAP; aqui ficam bruta e líquida.", False),
+        ("• Pé-direito lido dos cortes (aba Premissas, editável).", False),
         ("", False),
         ("Fora desta fase: áreas de terreno (planta de locação), cobertura, fachadas e cortes.", False),
     ]
@@ -161,8 +200,8 @@ def planilha(dados: dict, destino: Path):
             c.number_format = "#,##0.00"
 
     es = wb.create_sheet("Esquadrias")
-    _cabecalho(es, ["Pavimento", "Tipo", "Largura (m)", "Altura (m)", "Peitoril (m)", "Qtd", "Área de vão (m²)"],
-               [18, 10, 12, 12, 12, 8, 16])
+    _cabecalho(es, ["Pavimento", "Tipo", "Largura (m)", "Altura (m)", "Peitoril (m)", "Qtd", "Área de vão (m²)",
+                    "Soleira/peitoril (m)"], [18, 10, 12, 12, 12, 8, 16, 18])
     cont = Counter((e["pavimento"], e["tipo"], e["largura_m"], e["altura_m"], e["peitoril_m"]) for e in dados["esquadrias"])
     ordem = {p: i for i, p in enumerate(pavs)}
     r = 2
@@ -172,12 +211,13 @@ def planilha(dados: dict, destino: Path):
             if col in (3, 4, 5):
                 c.number_format = "0.00"
         es.cell(row=r, column=7, value=f"=C{r}*D{r}*F{r}").number_format = "0.00"
+        es.cell(row=r, column=8, value=f"=C{r}*F{r}").number_format = "0.00"
         r += 1
     fim = r - 1
     r += 1
     es.cell(row=r, column=1, value="Total da obra por tipo e dimensão").font = Font(bold=True)
     r += 1
-    for col, t in enumerate(("Tipo", "Largura (m)", "Altura (m)", "Peitoril (m)", "Qtd", "Área de vão (m²)"), 2):
+    for col, t in enumerate(("Tipo", "Largura (m)", "Altura (m)", "Peitoril (m)", "Qtd", "Área de vão (m²)", "Soleira/peitoril (m)"), 2):
         es.cell(row=r, column=col, value=t).font = Font(bold=True)
     r += 1
     tipos = sorted({(tp, L, H, P) for (_, tp, L, H, P) in cont}, key=lambda k: (k[0], k[1], k[2]))
@@ -188,7 +228,69 @@ def planilha(dados: dict, destino: Path):
         es.cell(row=r, column=5, value=P).number_format = "0.00"
         es.cell(row=r, column=6, value=f'=SUMIFS($F$2:$F${fim},$B$2:$B${fim},B{r},$C$2:$C${fim},C{r},$D$2:$D${fim},D{r})')
         es.cell(row=r, column=7, value=f"=C{r}*D{r}*F{r}").number_format = "0.00"
+        es.cell(row=r, column=8, value=f"=C{r}*F{r}").number_format = "0.00"
         r += 1
+
+    # premissas
+    pr = wb.create_sheet("Premissas")
+    _cabecalho(pr, ["Pavimento", "Pé-direito (m)", "Fonte"], [20, 14, 60])
+    for i, p in enumerate(dados["premissas"]["pe_direito_m"], 2):
+        pr.cell(row=i, column=1, value=p)
+        c = pr.cell(row=i, column=2, value=dados["premissas"]["pe_direito_m"][p])
+        c.number_format = "0.00"
+        c.fill = PatternFill("solid", fgColor="FFF8E1")
+        pr.cell(row=i, column=3, value=dados["premissas"]["fonte_pe_direito"][p])
+    j = len(dados["premissas"]["pe_direito_m"]) + 3
+    pr.cell(row=j, column=1, value="Altura assumida quando o vão não tem etiqueta na planta").font = Font(bold=True)
+    for k, (t, h) in enumerate(dados["premissas"]["altura_padrao_m"].items(), j + 1):
+        pr.cell(row=k, column=1, value=t)
+        pr.cell(row=k, column=2, value=h).number_format = "0.00"
+    pr.cell(row=j + 4, column=1, value="Células em amarelo são editáveis: a aba Quantitativos recalcula sozinha.").font = Font(italic=True)
+
+    # quantitativos por ambiente
+    qt = wb.create_sheet("Quantitativos")
+    cols = ["Pavimento", "Ambiente", "Tipo", "Pé-direito (m)", "Piso (m²)", "Teto (m²)", "Perímetro (m)",
+            "Contorno c/ parede (m)", "Contorno s/ parede (m)", "Portas (un)", "Larg. portas (m)", "Rodapé (m)",
+            "Parede bruta (m²)", "Janelas (un)", "Vãos portas+janelas (m²)", "Parede líquida (m²)", "Observação"]
+    _cabecalho(qt, cols, [16, 22, 11, 11, 10, 10, 11, 12, 12, 9, 11, 10, 12, 9, 13, 12, 70])
+    for r, q in enumerate(dados["quantitativos"], 2):
+        vals = [q["pavimento"], q["ambiente"], q["tipo"], f"=VLOOKUP(A{r},Premissas!$A:$B,2,FALSE)",
+                q["piso_m2"], q["teto_m2"], q["perimetro_m"], q["perimetro_parede_m"], q["sem_parede_m"],
+                q["n_portas"], q["larg_portas_m"], f"=MAX(H{r}-K{r},0)", f"=H{r}*D{r}", q["n_janelas"],
+                q["area_vaos_m2"], f"=M{r}-O{r}", q["observacao"]]
+        for col, val in enumerate(vals, 1):
+            c = qt.cell(row=r, column=col, value=val)
+            if col in (4, 5, 6, 7, 8, 9, 11, 12, 13, 15, 16):
+                c.number_format = "0.00"
+    nq = len(dados["quantitativos"]) + 1
+    qt.auto_filter.ref = f"A1:Q{nq}"
+
+    # resumo dos quantitativos
+    rq = wb.create_sheet("Resumo quantitativos")
+    _cabecalho(rq, ["Tipo de ambiente", "Ambientes", "Piso (m²)", "Teto (m²)", "Rodapé (m)", "Parede bruta (m²)",
+                    "Vãos (m²)", "Parede líquida (m²)"], [22, 11, 13, 13, 13, 16, 12, 17])
+    fonte = {"Piso (m²)": "E", "Teto (m²)": "F", "Rodapé (m)": "L", "Parede bruta (m²)": "M", "Vãos (m²)": "O", "Parede líquida (m²)": "P"}
+    def bloco(lin0, chave_col, chaves, titulo):
+        rq.cell(row=lin0, column=1, value=titulo).font = Font(bold=True)
+        for i, k in enumerate(chaves, lin0 + 1):
+            rq.cell(row=i, column=1, value=k)
+            rq.cell(row=i, column=2, value=f'=COUNTIF(Quantitativos!${chave_col}:${chave_col},A{i})')
+            for col, L in enumerate(fonte.values(), 3):
+                rq.cell(row=i, column=col, value=f'=SUMIF(Quantitativos!${chave_col}:${chave_col},A{i},Quantitativos!${L}:${L})').number_format = "#,##0.00"
+        t = lin0 + len(chaves) + 1
+        rq.cell(row=t, column=1, value="Total").font = Font(bold=True)
+        for col in range(2, 9):
+            L = get_column_letter(col)
+            c = rq.cell(row=t, column=col, value=f"=SUM({L}{lin0 + 1}:{L}{t - 1})")
+            c.font = Font(bold=True)
+            if col > 2:
+                c.number_format = "#,##0.00"
+        return t + 2
+    tipos = [t for t in ("seca", "molhada", "externa", "circulação", "garagem", "técnico")
+             if any(q["tipo"] == t for q in dados["quantitativos"])]
+    lin = bloco(2, "C", tipos, "Por tipo de ambiente")
+    bloco(lin, "A", list(dict.fromkeys(q["pavimento"] for q in dados["quantitativos"])), "Por pavimento")
+    rq.cell(row=1, column=1).value = "Agrupamento"
 
     ca = wb.create_sheet("Calibração")
     _cabecalho(ca, ["Prancha", "Vista", "Escala nominal", "mm/pt nominal", "mm/pt pelas cotas", "Diferença", "Cotas usadas", "Dispersão"],
@@ -202,7 +304,8 @@ def planilha(dados: dict, destino: Path):
         ca.cell(row=i, column=6, value=f'=IF(ISNUMBER(E{i}),E{i}/D{i}-1,"")').number_format = "+0.00%;-0.00%"
         ca.cell(row=i, column=7, value=v["n_cotas"])
         ca.cell(row=i, column=8, value=(v["dispersao_pct"] or 0) / 100).number_format = "0.00%"
-    wb.move_sheet("Resumo", offset=-1)
+    ordem_abas = ["Leia-me", "Resumo", "Resumo quantitativos", "Quantitativos", "Ambientes", "Esquadrias", "Premissas", "Calibração"]
+    wb._sheets = [wb[n] for n in ordem_abas]
     wb.save(destino)
 
 
@@ -216,14 +319,20 @@ def pagina_conferencia(dados: dict, pdf: Path, destino: Path):
         pix = doc[v["pagina"] - 1].get_pixmap(matrix=pymupdf.Matrix(1.6, 1.6), clip=pymupdf.Rect(x0, y0, x1, y1),
                                                colorspace=pymupdf.csGRAY)
         img = base64.b64encode(pix.tobytes("png")).decode()
-        ambs = [a for a in dados["ambientes"] if a["vista"] == v["id"]]
+        qidx = {q["indice_ambiente"]: q for q in dados["quantitativos"]}
+        ambs = [dict(a, q=qidx.get(i)) for i, a in enumerate(dados["ambientes"]) if a["vista"] == v["id"]]
+        vaos_v = [{"r": x["retangulo"], "t": x["tipo"], "l": x["largura_m"], "h": x.get("altura_m")}
+                  for x in dados["vaos"] if x["vista"] == v["id"]]
         esqs = Counter(f'{e["tipo"]} {e["largura_m"]:.2f}×{e["altura_m"]:.2f}'.replace(".", ",")
                        for e in dados["esquadrias"] if e["vista"] == v["id"])
         vistas.append({"id": v["id"], "titulo": v["titulo"], "caixa": [x0, y0, x1 - x0, y1 - y0], "img": img,
                        "escala": v["m_por_pt"], "nominal": v["m_por_pt_nominal"], "cotas": v["n_cotas"],
-                       "ambientes": [{k: a[k] for k in ("nome", "area_rotulo_m2", "area_m2", "area_piso_m2", "perimetro_m",
-                                                        "divergencia_pct", "status", "observacao", "poligono", "furos")}
+                       "ambientes": [{**{k: a[k] for k in ("nome", "area_rotulo_m2", "area_m2", "area_piso_m2", "perimetro_m",
+                                                           "divergencia_pct", "status", "observacao", "poligono", "furos")},
+                                      "q": a["q"] and {k: a["q"][k] for k in ("rodape_m", "parede_liquida_m2", "teto_m2", "pe_direito_m",
+                                                                              "n_portas", "n_janelas")}}
                                      for a in ambs],
+                       "vaos": vaos_v,
                        "esquadrias": sorted(esqs.items())})
     tot = len(dados["ambientes"])
     ok = sum(a["status"] == "ok" for a in dados["ambientes"])
@@ -295,7 +404,7 @@ tr.row{cursor:pointer}tr.row:hover,tr.row.sel{background:var(--elev)}
 <div class="card"><div class="plan" id="plan"><div class="tip" id="tip"></div></div></div>
 <div class="card side"><h2 id="vt"></h2><table><thead><tr><th>Ambiente</th><th class="n">Rótulo</th><th class="n">Medido</th><th class="n">Dif.</th><th></th></tr></thead><tbody id="tb"></tbody></table>
 <div class="obs" id="obs"></div><div class="esq" id="esq"></div>
-<div class="legend"><span><i style="background:#1D9E75"></i>conferido</span><span><i style="background:#E8A317"></i>conferir</span><span><i style="background:#D64545"></i>divergente</span></div>
+<div class="legend"><span><i style="background:#1D9E75"></i>conferido</span><span><i style="background:#E8A317"></i>conferir</span><span><i style="background:#D64545"></i>divergente</span><span><i style="background:#C2610C"></i>vão de porta</span><span><i style="background:#1E66C8"></i>vão de janela</span></div>
 </div></div>
 <div class="foot">Áreas em m². Rótulo = área escrita na planta pelo arquiteto. Clique num ambiente (na planta ou na tabela) para destacá-lo.</div>
 </div>
@@ -320,9 +429,13 @@ function mostrar(i){
   p.setAttribute("d",pathOf(a));p.setAttribute("fill",COR[a.status]);p.setAttribute("fill-opacity",".28");p.setAttribute("fill-rule","evenodd");
   p.setAttribute("stroke",COR[a.status]);p.setAttribute("class","amb");p.dataset.k=k;
   p.addEventListener("mousemove",e=>{const r=plan.getBoundingClientRect();tip.style.display="block";
-   tip.innerHTML=`<b>${a.nome}</b><br>medido ${f2(a.area_m2)} m² · rótulo ${f2(a.area_rotulo_m2)} m²<br>perímetro ${f2(a.perimetro_m)} m`+(a.area_piso_m2&&Math.abs(a.area_piso_m2-a.area_m2)>.01?`<br>piso total ${f2(a.area_piso_m2)} m²`:"");
+   tip.innerHTML=`<b>${a.nome}</b><br>medido ${f2(a.area_m2)} m² · rótulo ${f2(a.area_rotulo_m2)} m²<br>perímetro ${f2(a.perimetro_m)} m`+(a.area_piso_m2&&Math.abs(a.area_piso_m2-a.area_m2)>.01?`<br>piso total ${f2(a.area_piso_m2)} m²`:"")
+    +(a.q?`<br>rodapé ${f2(a.q.rodape_m)} m · parede líquida ${f2(a.q.parede_liquida_m2)} m²<br>${a.q.n_portas} porta(s), ${a.q.n_janelas} janela(s) · PD ${f2(a.q.pe_direito_m)} m`:"");
    tip.style.left=Math.min(e.clientX-r.left+12,r.width-220)+"px";tip.style.top=(e.clientY-r.top+12)+"px"});
   p.addEventListener("mouseleave",()=>tip.style.display="none");p.addEventListener("click",()=>sel(k));svg.appendChild(p)});
+ (v.vaos||[]).forEach(o=>{const r=document.createElementNS(NS,"rect"),[a,b,c,d]=o.r;
+  r.setAttribute("x",a);r.setAttribute("y",b);r.setAttribute("width",Math.max(c-a,1.5));r.setAttribute("height",Math.max(d-b,1.5));
+  r.setAttribute("fill",o.t==="porta"?"#C2610C":"#1E66C8");r.setAttribute("fill-opacity",".75");r.setAttribute("pointer-events","none");svg.appendChild(r)});
  plan.appendChild(svg);
  document.getElementById("vt").textContent=v.titulo+" · "+v.ambientes.length+" ambientes";
  document.getElementById("tb").innerHTML=v.ambientes.map((a,k)=>`<tr class="row" data-k="${k}"><td>${a.nome}</td><td class="n">${f2(a.area_rotulo_m2)}</td><td class="n">${f2(a.area_m2)}</td><td class="n">${fp(a.divergencia_pct)}</td><td><span class="chip ${a.status}">${TXT[a.status]}</span></td></tr>`).join("");

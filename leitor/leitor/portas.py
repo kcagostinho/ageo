@@ -55,6 +55,7 @@ def encontrar_portas(pag: Pagina, caixa, camada: str = "A-DOOR") -> list[Porta]:
         grupos.setdefault((round(ctr[0]), round(ctr[1])), []).append((ctr, p0, p3, r0))
 
     folhas = [s for s in pag.segmentos if s[0] == camada and dentro(s[2], s[3])]
+    folhas_ret = [s for s in pag.segmentos if s[0] in (camada, camada + "-FRAM") and dentro(s[2], s[3])]
     portas = []
     for itens in grupos.values():
         ctr = itens[0][0]
@@ -73,6 +74,26 @@ def encontrar_portas(pag: Pagina, caixa, camada: str = "A-DOOR") -> list[Porta]:
                         aberta = e1
                     elif _dist(y, e2) < 1.5:
                         aberta = e2
+        if aberta is None:
+            # folha desenhada como retângulo fino (camada de batente/folha): procura um traço
+            # paralelo à reta dobradiça→ponta, colado nela
+            for e in (e1, e2):
+                ux, uy = (e[0] - ctr[0]) / r, (e[1] - ctr[1]) / r
+                for s in folhas_ret:
+                    a_, b_ = (s[2], s[3]), (s[4], s[5])
+                    L = _dist(a_, b_)
+                    if L < 0.5 * r:
+                        continue
+                    vx, vy = (b_[0] - a_[0]) / L, (b_[1] - a_[1]) / L
+                    if abs(abs(ux * vx + uy * vy) - 1) > 0.01:
+                        continue
+                    # distância do traço à reta dobradiça→ponta
+                    d = abs((a_[0] - ctr[0]) * uy - (a_[1] - ctr[1]) * ux)
+                    if d < 3.0 and min(_dist(a_, ctr), _dist(b_, ctr)) < 0.2 * r:
+                        aberta = e
+                        break
+                if aberta is not None:
+                    break
         if aberta is None:
             continue
         fechada = e2 if aberta is e1 else e1

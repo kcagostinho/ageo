@@ -14,6 +14,7 @@ from shapely.geometry import Point, box
 
 from .ingestao import Pagina
 from .portas import encontrar_portas
+from .esquadrias import ler_esquadrias
 
 # Camadas que limitam um ambiente: paredes, linhas de piso/soleira (fecham os vãos de porta),
 # janelas e portas de vidro/correr, e batentes. Folhas e arcos de porta (A-DOOR) ficam de fora.
@@ -21,7 +22,8 @@ CAMADAS_LIMITE = ("A-WALL", "A-FLOR", "A-GLAZ", "A-DOOR-GLAZ", "A-DOOR-FRAM")
 # mobiliário fixo cujo contorno às vezes cobre a face da parede na exportação do CAD
 CAMADAS_SOBREPOSTAS = ("Q-SPCQ", "P-SANR-FIXT")
 # o que indica que um vão entre duas pontas de parede é porta ou janela (e não passagem livre)
-CAMADAS_VAO = ("A-DOOR", "A-DOOR-FRAM", "A-DOOR-GLAZ", "A-GLAZ", "A-FLOR")
+EVID_PORTA = ("A-DOOR", "A-DOOR-FRAM", "A-DOOR-GLAZ", "A-FLOR")
+EVID_JANELA = ("A-GLAZ",)
 NUM = re.compile(r"^\d{1,4},\d{2}$")
 
 
@@ -60,14 +62,17 @@ def reparar_faces(paredes, outros, tol=0.3):
     return aceitos
 
 
-def vaos(paredes, evidencias, m_por_pt):
+def vaos(paredes, evid_porta, evid_janela, m_por_pt):
     """Fecha vãos de porta/janela: pares de pontas de parede ('tampas') frente a frente,
-    com porta, batente, vidro ou soleira entre elas. Devolve (retângulos com evidência,
-    retângulos sem evidência) — os sem evidência são passagens livres, usados só se preciso."""
+    com porta, batente, vidro ou soleira entre elas. Devolve ([(retângulo, "porta"|"janela")],
+    [retângulos sem evidência]) — os sem evidência são passagens livres, usados só se preciso."""
+    evidencias = list(evid_porta) + list(evid_janela)
+    geo_p = shapely.linestrings(np.array(evid_porta, dtype=float).reshape(-1, 2, 2)) if evid_porta else None
+    arv_p = shapely.STRtree(geo_p) if evid_porta else None
     tampas = []
     for s in paredes:
         oc = _orient(s)
-        if oc and 0.05 <= (oc[3] - oc[2]) * m_por_pt <= 0.40:
+        if oc and 0.08 <= (oc[3] - oc[2]) * m_por_pt <= 0.40:   # espessura de parede plausível
             tampas.append(oc)
     arv_par = shapely.STRtree(shapely.linestrings(np.array(paredes, dtype=float).reshape(-1, 2, 2)))
     geo_ev = shapely.linestrings(np.array(evidencias, dtype=float).reshape(-1, 2, 2)) if evidencias else None
@@ -96,7 +101,8 @@ def vaos(paredes, evidencias, m_por_pt):
                     R = r.buffer(0.5, join_style="mitre")
                     ext = sum(geo_ev[k].intersection(R).length for k in arv_ev.query(R, predicate="intersects"))
                     if dentro or ext >= 0.5 * (b[1] - a[1]):
-                        rets.append(r.bounds)
+                        porta = arv_p is not None and len(arv_p.query(R, predicate="intersects")) > 0
+                        rets.append((r.bounds, "porta" if porta else "janela"))
                     else:
                         livres.append(r.bounds)
                 break
@@ -124,6 +130,10 @@ class Ambiente:
     rotulo_xy: tuple[float, float] = (0.0, 0.0)
     status: str = "sem_poligono"
     area_piso_m2: float | None = None     # área total do polígono (piso)
+    area_teto_m2: float | None = None     # área coberta (teto/forro)
+    perimetro_parede_m: float | None = None   # contorno junto a parede (inclui vãos de porta/janela)
+    sem_parede_m: float | None = None         # contorno sem parede (guarda-corpo, lado aberto)
+    vaos: list[str] = field(default_factory=list)   # ids dos vãos (portas/janelas) no contorno
     observacao: str = ""
 
     @property
@@ -170,6 +180,18 @@ def _parte_coberta(pag: Pagina, poly, camada: str = "A-FLOR-OVHD"):
     return poly.intersection(box(xs.min(), ys.min(), xs.max(), ys.max()))
 
 
+def _dir(linha):
+    (x0, y0), (x1, y1) = linha.coords[0], linha.coords[-1]
+    L = max(((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5, 1e-9)
+    return np.array([(x1 - x0) / L, (y1 - y0) / L])
+
+
+def _extremos(a, b):
+    """Pontas mais afastadas entre dois segmentos colineares."""
+    pts = list(a.coords) + list(b.coords)
+    return max(((p, q) for p in pts for q in pts), key=lambda pq: (pq[0][0] - pq[1][0]) ** 2 + (pq[0][1] - pq[1][1]) ** 2)
+
+
 def _regioes(segs, retangulos, c, m_por_pt, eps, faixa_fina_m):
     linhas = shapely.linestrings(np.array(segs, dtype=float).reshape(-1, 2, 2))
     tinta = shapely.union_all(list(shapely.buffer(linhas, eps, cap_style="square", join_style="mitre"))
@@ -191,7 +213,7 @@ def _achar(regioes, x, y):
 
 
 def detectar(pag: Pagina, caixa, m_por_pt: float, vista: str = "", eps: float = 0.3,
-             camadas=CAMADAS_LIMITE, faixa_fina_m: float = 0.20) -> list[Ambiente]:
+             camadas=CAMADAS_LIMITE, faixa_fina_m: float = 0.20, vaos_saida: list | None = None) -> list[Ambiente]:
     """Mede os ambientes rotulados de uma vista.
 
     Duas leituras: (A) só paredes, esquadrias e linhas de apoio; (B) igual, mais as linhas de
@@ -208,13 +230,106 @@ def detectar(pag: Pagina, caixa, m_por_pt: float, vista: str = "", eps: float = 
     faces = reparar_faces(paredes, sob)
     # linhas de apoio: folha de cada porta na posição fechada, um pouco prolongada nas pontas
     apoio = []
-    for p in encontrar_portas(pag, c):
+    portas = encontrar_portas(pag, c)
+    for p in portas:
         (x0, y0), (x1, y1) = p.dobradica, p.fechada
         L = max(((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5, 1e-6)
         ux, uy = (x1 - x0) / L * 1.5, (y1 - y0) / L * 1.5
         apoio.append((x0 - ux, y0 - uy, x1 + ux, y1 + uy))
-    evid = [s[2:6] for s in pag.segmentos if s[0] in CAMADAS_VAO and na(s)] + apoio
-    rets, livres = vaos(paredes + faces, evid, m_por_pt)
+    evid_p = [s[2:6] for s in pag.segmentos if s[0] in EVID_PORTA and na(s)] + apoio
+    evid_j = [s[2:6] for s in pag.segmentos if s[0] in EVID_JANELA and na(s)]
+    vaos_tipados, livres = vaos(paredes + faces, evid_p, evid_j, m_por_pt)
+    rets = [b for b, _ in vaos_tipados]
+    # registro dos vãos (para quantitativos: rodapé, desconto de parede, soleiras)
+    reg_vaos = []
+    for k, (b, tipo) in enumerate(vaos_tipados):
+        dx, dy = b[2] - b[0], b[3] - b[1]
+        reg_vaos.append({"id": f"{vista or pag.numero}-V{k + 1:03d}", "tipo": tipo,
+                         "largura_m": round(max(dx, dy) * m_por_pt, 3), "espessura_m": round(min(dx, dy) * m_por_pt, 3),
+                         "centro": [round((b[0] + b[2]) / 2, 2), round((b[1] + b[3]) / 2, 2)],
+                         "retangulo": [round(v, 2) for v in b], "ambientes": []})
+    buf_vaos = [box(*b).buffer(2.0, join_style="mitre") for b in rets]
+    # vãos "por vidro": esquadria desenhada sem interromper a parede no plano de corte
+    # (janela alta, como basculante de banheiro) ou porta de correr encostada em parede
+    # perpendicular. Só vira vão se houver etiqueta L x H de mesma largura por perto.
+    vidro = [s[2:6] for s in pag.segmentos if s[0] in ("A-GLAZ", "A-DOOR-GLAZ", "A-DOOR-FRAM") and na(s)]
+    if vidro:
+        etiquetas = ler_esquadrias(pag, caixa)
+        arv_r = shapely.STRtree([box(*b) for b in rets]) if rets else None
+        # folhas de porta de correr e batentes ficam separados por frestas: agrupa com folga de ~5 cm
+        folga = 0.025 / m_por_pt
+        nuvem = shapely.union_all(shapely.buffer(shapely.linestrings(np.array(vidro, dtype=float).reshape(-1, 2, 2)), folga))
+        usadas = set()
+        so_vidro = shapely.STRtree(shapely.linestrings(np.array(
+            [s[2:6] for s in pag.segmentos if s[0] in ("A-GLAZ", "A-DOOR-GLAZ") and na(s)] or [(0, 0, 0, 1e-3)], dtype=float).reshape(-1, 2, 2)))
+        for g in getattr(nuvem, "geoms", [nuvem]):
+            if arv_r is not None and len(arv_r.query(g, predicate="intersects")):
+                continue
+            if not len(so_vidro.query(g, predicate="intersects")):
+                continue   # só batente/folha, sem vidro: não é esquadria de vidro
+            x0, y0, x1, y1 = g.bounds
+            x0, y0, x1, y1 = x0 + folga, y0 + folga, x1 - folga, y1 - folga
+            larg = max(x1 - x0, y1 - y0) * m_por_pt
+            if larg < 0.3:
+                continue
+            cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+            cands = [(((e.x - cx) ** 2 + (e.y - cy) ** 2) ** 0.5 * m_por_pt, i) for i, e in enumerate(etiquetas)
+                     if i not in usadas and abs(e.largura_m - larg) <= 0.10]
+            cands = [c for c in cands if c[0] <= 3.0]
+            if not cands:
+                continue
+            _, i = min(cands)
+            usadas.add(i)
+            reg_vaos.append({"id": f"{vista or pag.numero}-V{len(reg_vaos) + 1:03d}", "tipo": etiquetas[i].tipo,
+                             "largura_m": round(larg, 3), "espessura_m": round(min(x1 - x0, y1 - y0) * m_por_pt, 3),
+                             "centro": [round(cx, 2), round(cy, 2)], "retangulo": [round(v, 2) for v in (x0, y0, x1, y1)],
+                             "ambientes": [], "por_vidro": True})
+            # alcança os cômodos dos dois lados (até 20 cm), mas não passa das pontas do vão
+            r_ = 0.20 / m_por_pt
+            buf_vaos.append(box(x0 - 1, y0 - r_, x1 + 1, y1 + r_) if (x1 - x0) >= (y1 - y0)
+                            else box(x0 - r_, y0 - 1, x1 + r_, y1 + 1))
+    # vãos "por folha": porta de giro cujo vão não fechou por pontas de parede (ex.: porta
+    # de duas folhas encostada em parede perpendicular). Folhas colineares e vizinhas = um vão.
+    soltas = []
+    arv_b = shapely.STRtree(buf_vaos) if buf_vaos else None
+    for p in portas:
+        seg = shapely.LineString([p.dobradica, p.fechada])
+        if arv_b is not None and len(arv_b.query(seg.centroid, predicate="intersects")):
+            continue
+        soltas.append(seg)
+    grupos = []
+    for seg in soltas:
+        for g in grupos:
+            if g.distance(seg) < 3 and abs(abs(np.dot(_dir(g), _dir(seg))) - 1) < 1e-3:
+                grupos[grupos.index(g)] = shapely.LineString(_extremos(g, seg))
+                break
+        else:
+            grupos.append(seg)
+    etiq = None
+    for g in grupos:
+        larg = g.length * m_por_pt
+        if larg < 0.5:
+            continue
+        (x0, y0), (x1, y1) = g.coords[0], g.coords[-1]
+        bx = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+        cx, cy = (bx[0] + bx[2]) / 2, (bx[1] + bx[3]) / 2
+        if etiq is None:
+            etiq = ler_esquadrias(pag, caixa)
+        cands = [(((e.x - cx) ** 2 + (e.y - cy) ** 2) ** 0.5 * m_por_pt, e) for e in etiq
+                 if e.tipo == "porta" and abs(e.largura_m - larg) <= 0.10]
+        cands = [c_ for c_ in cands if c_[0] <= 3.0]
+        reg_vaos.append({"id": f"{vista or pag.numero}-V{len(reg_vaos) + 1:03d}", "tipo": "porta",
+                         "largura_m": round(min(cands, key=lambda c_: c_[0])[1].largura_m if cands else larg, 3),
+                         "espessura_m": None, "centro": [round(cx, 2), round(cy, 2)],
+                         "retangulo": [round(v, 2) for v in bx], "ambientes": [], "por_folha": True})
+        r_ = 0.20 / m_por_pt
+        buf_vaos.append(box(bx[0] - 1, bx[1] - r_, bx[2] + 1, bx[3] + r_) if (bx[2] - bx[0]) >= (bx[3] - bx[1])
+                        else box(bx[0] - r_, bx[1] - 1, bx[2] + r_, bx[3] + 1))
+    if vaos_saida is not None:
+        vaos_saida.extend(reg_vaos)
+    arv_vaos = shapely.STRtree(buf_vaos) if buf_vaos else None
+    tinta_parede = shapely.union_all(shapely.buffer(
+        shapely.linestrings(np.array(paredes + faces, dtype=float).reshape(-1, 2, 2)), 1.0, cap_style="flat"))
     base = [s[2:6] for s in pag.segmentos if s[0] in camadas and s[0] != "A-FLOR" and na(s)] + faces + apoio
     piso = [s[2:6] for s in pag.segmentos if s[0] == "A-FLOR" and na(s)]
     leitura_a = _regioes(base, rets, c, m_por_pt, eps, faixa_fina_m)
@@ -257,14 +372,30 @@ def detectar(pag: Pagina, caixa, m_por_pt: float, vista: str = "", eps: float = 
         if poly is not None and not ext:
             poly = poly.buffer(eps, join_style="mitre")
             amb.area_m2 = poly.area * m_por_pt ** 2
-            amb.perimetro_m = poly.exterior.length * m_por_pt
             amb.poligono = [(round(x, 2), round(y, 2)) for x, y in poly.exterior.coords]
             amb.furos = [[(round(x, 2), round(y, 2)) for x, y in h.coords] for h in poly.interiors]
-            amb.area_piso_m2 = amb.area_m2
+            amb.area_piso_m2 = amb.area_teto_m2 = amb.area_m2
+            # contorno: junto a parede, em vão (porta/janela) ou aberto
+            borda = poly.boundary
+            amb.perimetro_m = borda.length * m_por_pt
+            adj = []
+            if arv_vaos is not None:
+                for k in arv_vaos.query(borda, predicate="intersects"):
+                    if borda.intersection(buf_vaos[k]).length * m_por_pt >= 0.3:
+                        adj.append(int(k))
+            em_vao = shapely.union_all([buf_vaos[k] for k in adj]) if adj else None
+            L_vao = borda.intersection(em_vao).length if em_vao is not None else 0.0
+            resto = borda.difference(em_vao) if em_vao is not None else borda
+            L_par = resto.intersection(tinta_parede).length
+            amb.perimetro_parede_m = (L_vao + L_par) * m_por_pt
+            amb.sem_parede_m = max(borda.length - L_vao - L_par, 0.0) * m_por_pt
+            amb.vaos = [reg_vaos[k]["id"] for k in adj]
+            for k in adj:
+                reg_vaos[k]["ambientes"].append(r.nome)
             if "coberta" in r.nome.lower():
                 cob = _parte_coberta(pag, poly)
                 if cob is not None:
-                    amb.area_m2 = cob.area * m_por_pt ** 2
+                    amb.area_m2 = amb.area_teto_m2 = cob.area * m_por_pt ** 2
                     amb.observacao = (f"Rótulo mede só a parte coberta (sob a projeção do pavimento-tipo). "
                                       f"Piso total da garagem: {amb.area_piso_m2:.2f} m².")
             if amb.status != "rotulos_juntos":
