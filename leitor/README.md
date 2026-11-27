@@ -16,6 +16,7 @@ Saídas em `--saida`:
 | `conferencia.html` | Prancha com cada ambiente desenhado e colorido pelo status, para conferência visual |
 | `paredes.html` | Modelo de paredes: cada parede com eixo e espessura, colorida por tipo (estrutural, vedação…). Clique para reclassificar e baixe os ajustes |
 | `paginacao.html` | Paginação estimada: elevação de cada parede bloco a bloco, famílias 29 e 39, com comparação de peças e cortes |
+| `modelo3d.html` | Modelo 3D (three.js embutido): andares alinhados pelo núcleo, paredes por tipo com vãos, ambientes clicáveis, filtros, corte horizontal e resumo por andar |
 | `obra.json` | Tudo acima com os polígonos, para as próximas fases (lacunas, EAP) |
 
 ## Como mede
@@ -59,3 +60,5 @@ Saídas em `--saida`:
 - Paredes ortogonais. Vãos em paredes inclinadas não são fechados automaticamente.
 
 Os arquivos das obras (`obras/`) ficam fora do git.
+
+O three.js vem embutido (`leitor/vendor/three-0.160.0-orbit.min.js`, licença MIT em `THREE-LICENSE.txt`). Ele foi gerado com esbuild a partir de `three@0.160.0` e `OrbitControls` (formato IIFE, expõe `THREE` e `OrbitControls`).

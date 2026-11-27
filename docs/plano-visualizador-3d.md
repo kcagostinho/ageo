@@ -6,7 +6,10 @@
 > - ver paredes internas e externas;
 > - ver a alvenaria **bloco a bloco**.
 
-Status: planejamento · 27/11/2026
+Status em 27/11/2026: **3D-1 feita.**
+- Gerador: `leitor/leitor/saida_3d.py`; saída `modelo3d.html`, arquivo único de ~950 KB que funciona sem internet.
+- three.js 0.160 com OrbitControls, num pacote embutido em `leitor/leitor/vendor` (licença MIT).
+- Decisões aplicadas: arquivo HTML; térreo e subsolo incluídos; muros escondidos por padrão; cobertura na 3D-3.
 
 ---
 

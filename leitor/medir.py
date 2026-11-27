@@ -30,6 +30,7 @@ from leitor import paginacao as PG             # noqa: E402
 from leitor import saida_paginacao as SPG      # noqa: E402
 from leitor import insumos as INS              # noqa: E402
 from leitor import saida_insumos as SINS       # noqa: E402
+from leitor import saida_3d as S3D             # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
 from leitor.esquadrias import ler_esquadrias   # noqa: E402
 from leitor.ingestao import extrair            # noqa: E402
@@ -528,6 +529,7 @@ def main():
     SP.pagina(dados, a.pdf, a.saida / "paredes.html")
     if dados.get("paginacao", {}).get("vista_detalhe"):
         SPG.pagina(dados, a.pdf, a.saida / "paginacao.html")
+    S3D.gerar(dados, a.saida / "modelo3d.html")
     st = Counter(x["status"] for x in dados["ambientes"])
     print(f"{len(dados['vistas'])} vistas, {len(dados['ambientes'])} ambientes {dict(st)}, {len(dados['esquadrias'])} esquadrias, "
           f"{len(dados['paredes'])} paredes {dict(Counter(p['tipo'] for p in dados['paredes']))}")
