@@ -34,6 +34,27 @@ PREMISSAS = {
     "fiada_cm": 20, "junta_cm": 1, "tolerancia_cm": 1.5, "transpasse_verga_cm": 30,
     "meia_espessura_parede_cm": 7.5,
 }
+# junta a prumo: junta vertical a menos de PRUMO_CM da junta da fiada de baixo (bloco sobre bloco)
+PRUMO_CM = 5.0
+# corte mínimo: sobra menor que isso não vira pedaço de bloco; junta-se à peça vizinha
+CORTE_MIN_CM = 5.0
+
+
+def _sem_corte_pequeno(out, P, fim_lado="fim"):
+    """Se a última peça é um corte menor que CORTE_MIN_CM, junta com a vizinha: meio + sobra vira um
+    corte de P/2 + sobra; inteiro + sobra vira meio + corte de P/2 + sobra."""
+    if len(out) < 2 or out[-1][2] != "corte" or out[-1][1] >= CORTE_MIN_CM:
+        return out
+    x, w, _ = out.pop()
+    x0, w0, k0 = out.pop()
+    if k0 == "meio":
+        out.append((x0, w0 + w, "corte"))
+    elif k0 == "int":
+        out.append((x0, P / 2, "meio"))
+        out.append((x0 + P / 2, w0 - P / 2 + w, "corte"))
+    else:
+        out.append((x0, w0 + w, "corte"))
+    return out
 
 
 def linhas_de_parede(paredes: list[dict], m_por_pt: float) -> list[dict]:
@@ -109,12 +130,12 @@ def _encher(ini, fim, P, comeca_meio, tol):
         out.append((x, P / 2, "meio")); x += P / 2
     if fim - x > tol:
         out.append((x, fim - x, "corte"))
-    return out
+    return _sem_corte_pequeno(out, P)
 
 
 def _juntas(pecas):
     """Juntas verticais internas de uma fiada (encontro de duas peças vizinhas)."""
-    pcs = sorted((p for p in pecas if p[2] != "vao"), key=lambda p: p[0])
+    pcs = sorted((p for p in pecas if p[2] not in ("vao", "cruzamento")), key=lambda p: p[0])
     return [b[0] for a, b in zip(pcs, pcs[1:]) if abs(a[0] + a[1] - b[0]) < 0.6]
 
 
@@ -133,7 +154,7 @@ def _melhor(ini, fim, P, tol, juntas_ant):
             js = [b[0] for a, b in zip(pcs, pcs[1:])]
             if juntas_ant:
                 dist = [min(abs(j_ - a) for a in juntas_ant) for j_ in js]
-                alinhadas = sum(1 for d in dist if d < 2.5)
+                alinhadas = sum(1 for d in dist if d < PRUMO_CM)
                 dmin = min(dist) if dist else P
             else:
                 alinhadas, dmin = 0, P
@@ -143,18 +164,73 @@ def _melhor(ini, fim, P, tol, juntas_ant):
         return []
     melhor = min(opcoes, key=lambda o: o[:5])
     if melhor[0] and juntas_ant:
+        conta = lambda pcs: sum(1 for a, b in zip(pcs, pcs[1:]) if any(abs(b[0] - j_) < PRUMO_CM for j_ in juntas_ant))
+        cands = [(melhor[0], melhor[1], melhor[5])]
         alt = _encher_amarrado(ini, fim, P, tol, juntas_ant)
-        js = [b[0] for a, b in zip(alt, alt[1:])]
-        al = sum(1 for j_ in js if any(abs(j_ - a) < 2.5 for a in juntas_ant))
-        if al < melhor[0]:
-            return alt
+        cands.append((conta(alt), sum(1 for p_ in alt if p_[2] == "corte"), alt))
+        bus = _encher_busca(ini, fim, P, tol, juntas_ant)
+        if bus:
+            cands.append((conta(bus), sum(1 for p_ in bus if p_[2] == "corte"), bus))
+        return min(cands, key=lambda c_: c_[:2])[2]
     return melhor[5]
+
+
+def _encher_busca(ini, fim, P, tol, juntas_ant, passo=0.5):
+    """Busca exaustiva (programação dinâmica em passos de 0,5 cm) da sequência de peças do trecho:
+    inteiro, meio ou corte (de 5 cm a P - 5 cm, em múltiplos de 2,5 cm; o último corte fecha o trecho
+    com qualquer medida ≥ 5 cm). Minimiza, nesta ordem: juntas a prumo, cortes, peças."""
+    n = int(round((fim - ini) / passo))
+    if n <= 0:
+        return []
+    inf = (10 ** 9,)
+    melhor = [inf] * (n + 1)
+    de = [None] * (n + 1)
+    melhor[0] = (0, 0, 0)
+    tam = [(int(round(P / passo)), "int", 0), (int(round(P / 2 / passo)), "meio", 0)]
+    tam += [(int(round(c / passo)), "corte", 1) for c in [x * 2.5 for x in range(2, int(P / 2.5))] if CORTE_MIN_CM <= c <= P - CORTE_MIN_CM]
+    k_tol = int(round(tol / passo))
+    k_min = int(round(CORTE_MIN_CM / passo))
+
+    def prumo(x):
+        xc = ini + x * passo
+        return 1 if any(abs(xc - a) < PRUMO_CM for a in juntas_ant) else 0
+
+    for x in range(n + 1):
+        if melhor[x] == inf:
+            continue
+        pr, ct, pc = melhor[x]
+        if x and x < n:
+            pass
+        for w, k, c in tam:
+            y = x + w
+            if y > n + k_tol:
+                continue
+            fecha = abs(n - y) <= k_tol
+            y2 = n if fecha else y
+            if not fecha and n - y < k_min:
+                continue                      # sobraria corte pequeno
+            custo = (pr + (0 if fecha else prumo(y)), ct + c, pc + 1)
+            if custo < melhor[y2]:
+                melhor[y2], de[y2] = custo, (x, w if not fecha else n - x, k)
+        r = n - x                             # fechar com um corte do tamanho exato
+        if k_min <= r <= int(round((P - CORTE_MIN_CM) / passo)):
+            custo = (pr, ct + 1, pc + 1)
+            if custo < melhor[n]:
+                melhor[n], de[n] = custo, (x, r, "corte")
+    if melhor[n] == inf:
+        return None
+    out, y = [], n
+    while y > 0:
+        x, w, k = de[y]
+        out.append((ini + x * passo, w * passo, k))
+        y = x
+    return out[::-1]
 
 
 def _encher_amarrado(ini, fim, P, tol, juntas_ant):
     """Preenchimento guloso que evita junta a prumo peça a peça: tenta bloco inteiro, depois meio;
     se os dois caem sobre junta da fiada de baixo, usa um compensador (corte) que desloca o ritmo."""
-    ok = lambda j_: all(abs(j_ - a) >= 2.5 for a in juntas_ant)
+    ok = lambda j_: all(abs(j_ - a) >= PRUMO_CM for a in juntas_ant)
     pcs, x = [], ini
     while fim - x > tol:
         resto = fim - x
@@ -172,11 +248,15 @@ def _encher_amarrado(ini, fim, P, tol, juntas_ant):
         w, k = escolhido
         pcs.append((x, w, k))
         x += w
-    return pcs
+    return _sem_corte_pequeno(pcs, P)
 
 
 def _preencher(ini, fim, fam, juntas_ant, borda_esq, tol, pecas, cont, borda_dir="canto"):
-    """Preenche [ini, fim] (cm) com inteiros, meio e corte, amarrado com a fiada de baixo."""
+    """Preenche [ini, fim] (cm) com inteiros, meio e corte, amarrado com a fiada de baixo.
+    Trecho menor que CORTE_MIN_CM entre peças fixas não leva bloco: é enchimento de argamassa."""
+    if tol < fim - ini < CORTE_MIN_CM:
+        pecas.append((ini, fim - ini, "enchimento")); cont["enchimentos de argamassa (peças)"] += 1
+        return
     for x, w, k in _melhor(ini, fim, fam["passo"], tol, juntas_ant):
         if k == "int":
             pecas.append((x, w, "inteiro")); cont[fam["inteiro"]] += 1
@@ -203,6 +283,41 @@ def _canaletas(ini, fim, fam, tipo_can, tol, pecas, cont, juntas_ant=None):
             cont[meia] += 1
         else:
             cont[nome] += 1; cont["cortes (peças)"] += 1; cont["cortes (cm)"] += w
+
+
+def _acertar(pecas, folga=0.5):
+    """Peças vizinhas com folga ou sobreposição de até 'folga' cm passam a se tocar exatamente
+    (diferenças de arredondamento nas pontas de verga, bloco especial e preenchimento)."""
+    pcs = sorted(pecas, key=lambda p: p[0])
+    out = []
+    for x, w, k in pcs:
+        if out:
+            x0, w0, k0 = out[-1]
+            d_ = x - (x0 + w0)
+            if 0 < abs(d_) <= folga:
+                if k in ("vao", "cruzamento"):
+                    out[-1] = (x0, x - x0, k0)          # a peça anterior se ajusta ao vão
+                else:
+                    x, w = x0 + w0, w + (x - (x0 + w0))
+        out.append((x, w, k))
+    return out
+
+
+def _encostar(ocup, ini, fim):
+    """Vergas e contravergas cuja ponta fica a menos de CORTE_MIN_CM da ponta da linha ou de outra
+    ocupação são estendidas até ela (não sobra pedaço de bloco menor que 5 cm)."""
+    ocup = sorted(ocup)
+    out = []
+    for i, (a, b, t) in enumerate(ocup):
+        if t in ("verga", "contraverga"):
+            esq = max([ini] + [o[1] for o in ocup[:i] if o[1] <= a])
+            dir_ = min([fim] + [o[0] for o in ocup[i + 1:] if o[0] >= b])
+            if 0 < a - esq < CORTE_MIN_CM:
+                a = esq
+            if 0 < dir_ - b < CORTE_MIN_CM:
+                b = dir_
+        out.append((a, b, t))
+    return out
 
 
 def _uniao(iv):
@@ -292,12 +407,21 @@ def paginar_linha(L: dict, familia: str, pe_direito_m: float, prem=PREMISSAS, gu
             elif tp in ("janela", "varanda") and z0 == base - h:   # contraverga / cinta da mureta
                 elem.append((u0 - tr, u1 + tr, "contraverga"))
         vaos_k = _uniao(vaos_k)
+        # cruzamento em X: estrutural passa sempre sobre vedação; mesmo tipo alterna por fiada
+        cruz = []
+        for u_x, tipo_x in L.get("xs", []):
+            if L["tipo"] != tipo_x:
+                passa = L["tipo"] == "estrutural"
+            else:
+                passa = (L["o"] == "h") == (k % 2 == 0)
+            if not passa:
+                cruz.append((u_x - meia_t, u_x + meia_t, "cruzamento"))
         # pontas de verga/contraverga: transpasse mínimo de 30 cm; se a ponta cair sobre junta da
         # fiada de baixo, estende 5 a 20 cm para manter a amarração
         def _ponta(x, sentido):
             for d_ in (0, 5, 10, 15, 20):
                 y = x + sentido * d_
-                if all(abs(y - j_) >= 2.5 for j_ in juntas_ant):
+                if all(abs(y - j_) >= PRUMO_CM for j_ in juntas_ant):
                     return y
             return x
         elem = [(_ponta(a, -1), _ponta(b, +1), t) for a, b, t in elem]
@@ -307,8 +431,13 @@ def paginar_linha(L: dict, familia: str, pe_direito_m: float, prem=PREMISSAS, gu
         elem = [(a, b, t) for a0, b0, t in elem for a, b in _subtrair([(a0, b0)], vaos_k)]
         respaldo = L["tipo"] == "estrutural" and k == n - 1
         if respaldo:
-            _canaletas(ini, fim, fam, "J" if L["fachada"] else "U", tol, pecas, cont, juntas_ant)
-            cont["cinta de respaldo (m)"] += (fim - ini) / 100
+            x = ini
+            for c0, c1, _ in sorted(cruz):
+                _canaletas(x, c0, fam, "J" if L["fachada"] else "U", tol, pecas, cont, juntas_ant)
+                pecas.append((c0, c1 - c0, "cruzamento"))
+                x = c1
+            _canaletas(x, fim, fam, "J" if L["fachada"] else "U", tol, pecas, cont, juntas_ant)
+            cont["cinta de respaldo (m)"] += (fim - ini - sum(c1 - c0 for c0, c1, _ in cruz)) / 100
         else:
             # especiais: L (fam. 39) na ponta que passa
             if fam.get("L"):
@@ -317,8 +446,9 @@ def paginar_linha(L: dict, familia: str, pe_direito_m: float, prem=PREMISSAS, gu
                     pecas.append((ini, pL, "especial")); cont[nomeL] += 1; ini += pL
                 if lim[1][1] and lim[1][2] == "L":
                     pecas.append((fim - pL, pL, "especial")); cont[nomeL] += 1; fim -= pL
-            ocup = [(a, b, "vao") for a, b in vaos_k] + elem
+            ocup = [(a, b, "vao") for a, b in vaos_k] + elem + cruz
             ocup = [(max(a, ini), min(b, fim), t) for a, b, t in ocup if min(b, fim) > max(a, ini)]
+            ocup = _encostar(ocup, ini, fim)
             # T em fiadas pares: bloco especial centrado no encontro, só se não colidir com vão/verga
             if fam.get("T") and par:
                 nomeT, pT = fam["T"]
@@ -326,8 +456,10 @@ def paginar_linha(L: dict, familia: str, pe_direito_m: float, prem=PREMISSAS, gu
                     pos = None
                     for d_ in (0, 5, -5, 10, -10, 15, -15, 20, -20):
                         a, b = t + d_ - pT / 2, t + d_ + pT / 2
-                        if a >= ini and b <= fim and not any(a < y1 and b > y0 for y0, y1, _ in ocup):
-                            if all(abs(a - j_) >= 2.5 and abs(b - j_) >= 2.5 for j_ in juntas_ant):
+                        lados_ok = all(not (0 < d2 < CORTE_MIN_CM) for d2 in
+                                       [a - ini, fim - b] + [a - y1 for y0, y1, _ in ocup if y1 <= a] + [y0 - b for y0, y1, _ in ocup if y0 >= b])
+                        if a >= ini and b <= fim and lados_ok and not any(a < y1 and b > y0 for y0, y1, _ in ocup):
+                            if all(abs(a - j_) >= PRUMO_CM and abs(b - j_) >= PRUMO_CM for j_ in juntas_ant):
                                 pos = (a, b); break
                             if pos is None and d_ == 0:
                                 pos0 = (a, b)
@@ -351,15 +483,18 @@ def paginar_linha(L: dict, familia: str, pe_direito_m: float, prem=PREMISSAS, gu
                     cont[f"{tp}s {L['tipo']} (m)"] += (b1 - b0) / 100
                 elif tp == "especial":
                     pecas.append((b0, b1 - b0, "especial"))
+                elif tp == "cruzamento":
+                    pecas.append((b0, b1 - b0, "cruzamento"))
                 else:
                     pecas.append((b0, b1 - b0, "vao"))
                 x, borda = b1, ("vao" if tp == "vao" else "canto")
             _preencher(x, fim, fam, juntas_ant, borda, tol, pecas, cont)
+        pecas = _acertar(pecas)
         juntas_ant = _juntas(pecas)
-        cont["juntas a prumo"] += sum(1 for j_ in juntas_ant if any(abs(j_ - a) < 2.5 for a in ant)) if k else 0
+        cont["juntas a prumo"] += sum(1 for j_ in juntas_ant if any(abs(j_ - a) < PRUMO_CM for a in ant)) if k else 0
         ant = juntas_ant
         if guardar:
-            fiadas.append([(round(a, 1), round(w, 1), t) for a, w, t in pecas])
+            fiadas.append([(round(a, 1), round(round(a + w, 1) - round(a, 1), 1), t) for a, w, t in pecas])
     cont["linhas fechadas sem corte"] += 1 if cont["cortes (peças)"] == 0 else 0
     # ajuste de modulação: quanto o comprimento da 1ª fiada teria de mudar para fechar
     # em múltiplo de meio bloco (sem contar vãos)
@@ -372,6 +507,20 @@ def paginar_linha(L: dict, familia: str, pe_direito_m: float, prem=PREMISSAS, gu
     return cont, fiadas
 
 
+def _cruzamentos(linhas: list[dict], m_por_pt: float, folga_pt: float = 6.0):
+    """Linhas que se cruzam pelo meio (X): guarda em cada uma a posição (cm, a partir do início)
+    e o tipo da outra. Encontros na ponta (L, T) já são tratados pelas pontas."""
+    for L in linhas:
+        L["xs"] = []
+    for A in linhas:
+        for B in linhas:
+            if A["o"] != "h" or B["o"] != "v":
+                continue
+            if A["ini"] + folga_pt < B["c"] < A["fim"] - folga_pt and B["ini"] + folga_pt < A["c"] < B["fim"] - folga_pt:
+                A["xs"].append(((B["c"] - A["ini"]) * m_por_pt * 100, B["tipo"]))
+                B["xs"].append(((A["c"] - B["ini"]) * m_por_pt * 100, A["tipo"]))
+
+
 def paginar(dados: dict, familia: str, guardar_vista: str | None = None, guardar_todas: bool = False):
     """Paginação de todas as linhas de parede, por pavimento. Devolve (contagem por pavimento, linhas).
     As peças bloco a bloco são guardadas para a vista 'guardar_vista' (ou para todas, com guardar_todas)."""
@@ -381,6 +530,7 @@ def paginar(dados: dict, familia: str, guardar_vista: str | None = None, guardar
     for v in dados["vistas"]:
         ps = [p for p in dados["paredes"] if p["vista"] == v["id"]]
         linhas = linhas_de_parede(ps, m[v["id"]])
+        _cruzamentos(linhas, m[v["id"]])
         guardar = guardar_todas or v["id"] == guardar_vista
         tot = Counter()
         for L in linhas:
@@ -388,7 +538,7 @@ def paginar(dados: dict, familia: str, guardar_vista: str | None = None, guardar
             cont["linhas"] += 1
             tot.update(cont)
             if guardar:
-                detalhes.append({**{k: L[k] for k in ("id", "o", "tipo", "fachada", "ponta_a", "ponta_b", "ts", "segmentos")},
+                detalhes.append({**{k: L[k] for k in ("id", "o", "tipo", "fachada", "ponta_a", "ponta_b", "ts", "xs", "segmentos")},
                                  "vista": v["id"],
                                  "eixo": [L["ini"], L["c"], L["fim"], L["c"]] if L["o"] == "h" else [L["c"], L["ini"], L["c"], L["fim"]],
                                  "comprimento_cm": round(L["comprimento_cm"], 1), "fiadas": fiadas,
@@ -398,7 +548,7 @@ def paginar(dados: dict, familia: str, guardar_vista: str | None = None, guardar
     return por_pav, detalhes
 
 
-def juntas_a_prumo(fiadas, tol_cm: float = 2.5) -> int:
+def juntas_a_prumo(fiadas, tol_cm: float = PRUMO_CM) -> int:
     """Conta juntas verticais internas que caem a menos de tol_cm de uma junta da fiada de baixo
     (junta a prumo = bloco sobre bloco, sem amarração)."""
     def juntas(f):

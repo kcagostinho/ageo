@@ -39,7 +39,7 @@ def _r(v, n=3):
     return round(float(v), n)
 
 
-COD = {"inteiro": 0, "meio": 1, "especial": 2, "J": 3, "U": 4, "corte": 5, "vao": 9}
+COD = {"inteiro": 0, "meio": 1, "especial": 2, "J": 3, "U": 4, "corte": 5, "enchimento": 6, "cruzamento": 8, "vao": 9}
 
 
 def montar(dados: dict) -> dict:
@@ -421,10 +421,10 @@ const RAMPA=[[0,[0.96,0.92,0.80]],[0.35,[0.93,0.70,0.25]],[0.7,[0.80,0.25,0.17]]
 function rampa(t){t=Math.max(0,Math.min(1,t));for(let i=1;i<RAMPA.length;i++){const [a,ca]=RAMPA[i-1],[b,cb]=RAMPA[i];if(t<=b){const u=(t-a)/(b-a);return ca.map((x,k)=>x+(cb[k]-x)*u)}}return RAMPA[RAMPA.length-1][1]}
 // custo de cada andar (paredes + ambientes), usado no mapa "por andar"
 D.andares.forEach(A=>{A.custo=A.paredes.reduce((s,p)=>s+(p.c||0),0)+A.ambientes.reduce((s,a)=>s+(a.c||0),0)});
-const COR_PECA={0:0xD9D6CC,1:0xB4AE9E,2:0x8E7CC3,3:0xE08A1E,4:0xF2B24C,5:0x262626};
-const COR_PECA_VED={0:0xB9CFE4,1:0x8EAFCF,3:0xE08A1E,4:0xF2B24C,5:0x262626};
+const COR_PECA={0:0xD9D6CC,1:0xB4AE9E,2:0x8E7CC3,3:0xE08A1E,4:0xF2B24C,5:0x262626,6:0x8F8A80};
+const COR_PECA_VED={0:0xB9CFE4,1:0x8EAFCF,3:0xE08A1E,4:0xF2B24C,5:0x262626,6:0x8F8A80};
 const NOME_PECA=[["inteiro 14×19×39",0xD9D6CC],["meio 14×19×19",0xB4AE9E],["amarração 34/54",0x8E7CC3],["canaleta J (cinta fachada)",0xE08A1E],
- ["canaleta U (cinta, verga, contraverga)",0xF2B24C],["corte/compensador",0x262626],["vedação 9 cm",0xB9CFE4],["graute vertical",0x1F4E8C]];
+ ["canaleta U (cinta, verga, contraverga)",0xF2B24C],["corte/compensador",0x262626],["enchimento de argamassa (< 5 cm)",0x8F8A80],["vedação 9 cm",0xB9CFE4],["graute vertical",0x1F4E8C]];
 const nf=(n,d=2)=>n==null?"—":Number(n).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
@@ -497,7 +497,7 @@ D.andares.forEach((A,ia)=>{
  const pecas=[],grauteM=[];
  if(A.pag){
   const caixaU=new THREE.BoxGeometry(1,1,1),lista={};
-  A.pag.linhas.forEach((L,il)=>L.f.forEach((fi,k)=>fi.forEach(([u,w,c])=>{if(c===9)return;
+  A.pag.linhas.forEach((L,il)=>L.f.forEach((fi,k)=>fi.forEach(([u,w,c])=>{if(c>=8)return;
    const key=L.tipo+"|"+(L.fachada?"ext":"int")+"|"+(c===3||c===4?"can":"blo");(lista[key]=lista[key]||[]).push([il,k,u,w,c])})));
   const q=new THREE.Quaternion(),Y=new THREE.Vector3(0,1,0),M=new THREE.Matrix4(),pos=new THREE.Vector3(),esc_=new THREE.Vector3(),col=new THREE.Color();
   Object.entries(lista).forEach(([key,arr])=>{
@@ -730,9 +730,10 @@ function blocoCusto(x,area,unid,A){
 function elevacao(L){
  const n=L.f.length,H=20;let x0=0,x1=L.comp;L.f.forEach(f=>f.forEach(([u,w])=>{x0=Math.min(x0,u);x1=Math.max(x1,u+w)}));
  const esc_=Math.max(0.35,Math.min(1.4,290/(x1-x0))),W=(x1-x0)*esc_+4,Ht=n*H*esc_+4;
- const cor={0:"#D9D6CC",1:"#B4AE9E",2:"#8E7CC3",3:"#E08A1E",4:"#F2B24C",5:"#262626"},corV={0:"#B9CFE4",1:"#8EAFCF",3:"#E08A1E",4:"#F2B24C",5:"#262626"};
+ const cor={0:"#D9D6CC",1:"#B4AE9E",2:"#8E7CC3",3:"#E08A1E",4:"#F2B24C",5:"#262626",6:"#8F8A80"},corV={0:"#B9CFE4",1:"#8EAFCF",3:"#E08A1E",4:"#F2B24C",5:"#262626",6:"#8F8A80"};
  let r="";L.f.forEach((f,k)=>{const y=Ht-2-(k+1)*H*esc_;f.forEach(([u,w,c])=>{const x=2+(u-x0)*esc_;
-  r+=c===9?`<rect x="${x}" y="${y}" width="${w*esc_}" height="${H*esc_}" fill="none" stroke="#999" stroke-dasharray="2 2"/>`
+  r+=c===8?`<rect x="${x+0.3}" y="${y+0.3}" width="${Math.max(w*esc_-0.6,0.3)}" height="${H*esc_-0.6}" fill="#E4E1D8"><title>parede que cruza</title></rect>`
+   :c===9?`<rect x="${x}" y="${y}" width="${w*esc_}" height="${H*esc_}" fill="none" stroke="#999" stroke-dasharray="2 2"/>`
    :`<rect x="${x+0.3}" y="${y+0.3}" width="${Math.max(w*esc_-0.6,0.3)}" height="${H*esc_-0.6}" fill="${(L.tipo==="vedação"?corV:cor)[c]||"#ccc"}"/>`})});
  return `<svg width="${W}" height="${Ht}" viewBox="0 0 ${W} ${Ht}" style="display:block;background:#fff;border-radius:6px">${r}</svg>`;
 }

@@ -8,11 +8,21 @@ no terminal e na aba "Conferência" da planilha. Verificações:
   - varandas: um vão de varanda por ambiente de varanda;
   - vãos soltos: todo vão está numa parede;
   - pavimentos repetidos: ambientes, quantitativos, vãos, paredes e paginação idênticos à referência;
-  - escala: escala única do documento.
+  - escala: escala única do documento;
+  - geometria, por pavimento: ambientes sobrepostos, parede sobre ambiente (faixa > 1 cm), parede sem
+    comprimento, vão fora da parede ou mais alto que o pé-direito, vãos sobrepostos;
+  - paginação bloco a bloco, por pavimento: peças sobrepostas na mesma parede e entre paredes (cantos,
+    T e cruzamentos), lacunas sem bloco, cortes menores que 5 cm e juntas a prumo (desencontro < 5 cm).
 """
 from __future__ import annotations
 
+import math
 from collections import Counter
+
+import shapely
+from shapely.geometry import LineString, Polygon
+
+ESP_BLOCO = {"estrutural": 0.14, "vedação": 0.09}
 
 VARANDA = ("varanda", "gourmet", "sacada", "terraço")
 
@@ -32,6 +42,107 @@ def _assinaturas(dados: dict, vid: str, titulo: str) -> dict:
                           for p in dados["paredes"] if p["vista"] == vid),
         "paginação": sorted((k, round(v, 4)) for k, v in pg.items()),
     }
+
+
+def geometria(dados: dict) -> dict:
+    """{pavimento: Counter de problemas de ambientes, paredes e vãos}."""
+    pd = dados["premissas"]["pe_direito_m"]
+    out = {}
+    for v in dados["vistas"]:
+        m, c = v["m_por_pt"], Counter()
+        h = pd.get(v["titulo"], 2.6)
+        polys = [(a, Polygon(a["poligono"], a.get("furos") or []).buffer(0)) for a in dados["ambientes"]
+                 if a["vista"] == v["id"] and a["poligono"]]
+        for i, (a, P) in enumerate(polys):
+            for b, Q in polys[i + 1:]:
+                if P.intersection(Q).area * m * m > 0.005:
+                    c["ambientes sobrepostos"] += 1
+        for p in dados["paredes"]:
+            if p["vista"] != v["id"]:
+                continue
+            if p["comprimento_m"] < 0.05:
+                c["paredes sem comprimento"] += 1
+                continue
+            for y in p["vaos"]:
+                if y["inicio_m"] < -0.02 or y["inicio_m"] + y["largura_m"] > p["comprimento_m"] + 0.02:
+                    c["vãos fora da parede"] += 1
+                topo = (y.get("peitoril_m") or 0) + (y.get("altura_m") or 0) if y["tipo"] == "janela" else (y.get("altura_m") or 0)
+                if topo > h + 0.001:
+                    c["vãos mais altos que o pé-direito"] += 1
+            vs = sorted(p["vaos"], key=lambda y: y["inicio_m"])
+            c["vãos sobrepostos"] += sum(1 for a, b in zip(vs, vs[1:]) if b["inicio_m"] < a["inicio_m"] + a["largura_m"] - 0.01)
+            if p["tipo"] == "muro" or "sobre porta" in p.get("motivo", "") or p.get("trecho_muro_inclinado"):
+                continue
+            e = p["eixo"]
+            W = LineString([e[:2], e[2:]]).buffer(p["espessura_m"] / m / 2, cap_style="flat")
+            Lp = math.hypot(e[2] - e[0], e[3] - e[1])
+            ux, uy = (e[2] - e[0]) / Lp, (e[3] - e[1]) / Lp
+            for y in p["vaos"]:          # aberturas até o piso: a parede está acima delas
+                if y["tipo"] in ("porta", "varanda"):
+                    s0, s1 = y["inicio_m"] / m, (y["inicio_m"] + y["largura_m"]) / m
+                    W = W.difference(LineString([(e[0] + ux * s0, e[1] + uy * s0), (e[0] + ux * s1, e[1] + uy * s1)])
+                                     .buffer(p["espessura_m"] / m, cap_style="flat"))
+            for a, P in polys:
+                ar = W.intersection(P).area * m * m
+                if ar > 0 and ar / p["comprimento_m"] > 0.01:
+                    c["paredes sobre ambiente (> 1 cm)"] += 1
+        out[v["titulo"]] = c
+    return out
+
+
+def paginacao(dados: dict, prumo_cm: float = 5.0, corte_min_cm: float = 5.0) -> dict:
+    """{pavimento: Counter} da paginação refeita bloco a bloco, em planta, fiada a fiada."""
+    from . import paginacao as PG
+    fam = dados["premissas"].get("familia", "39")
+    if not dados.get("paginacao", {}).get(fam):
+        return {}
+    _, det = PG.paginar(dados, fam, guardar_todas=True)
+    V = {v["id"]: v for v in dados["vistas"]}
+    out = {}
+    for vid in sorted({L["vista"] for L in det}):
+        v = V[vid]; m = v["m_por_pt"]
+        linhas = [L for L in det if L["vista"] == vid]
+        c = Counter()
+        n_f = max(len(L["fiadas"]) for L in linhas)
+        for k in range(n_f):
+            rects = []
+            for L in linhas:
+                if k >= len(L["fiadas"]):
+                    continue
+                e = L["eixo"]; ax, ay, bx, by = e[0] * m, e[1] * m, e[2] * m, e[3] * m
+                Lm = math.hypot(bx - ax, by - ay); ux, uy = (bx - ax) / Lm, (by - ay) / Lm
+                f = sorted(L["fiadas"][k], key=lambda q: q[0])
+                for a, b in zip(f, f[1:]):
+                    if b[0] < a[0] + a[1] - 0.05:
+                        c["peças sobrepostas na mesma parede"] += 1
+                    elif b[0] > a[0] + a[1] + 0.5:
+                        c["lacunas sem bloco"] += 1
+                for u, w, t in f:
+                    if t in ("vao", "cruzamento"):
+                        continue
+                    c["peças"] += 1
+                    if t != "enchimento" and w < corte_min_cm - 1e-6:
+                        c["cortes menores que 5 cm"] += 1
+                    u0, u1 = u / 100, (u + w - 1) / 100
+                    rects.append((L["id"], LineString([(ax + ux * u0, ay + uy * u0), (ax + ux * u1, ay + uy * u1)])
+                                  .buffer(ESP_BLOCO[L["tipo"]] / 2, cap_style="flat")))
+            arv = shapely.STRtree([r for _, r in rects])
+            for i, (lid, R) in enumerate(rects):
+                for j in arv.query(R, predicate="intersects"):
+                    if j > i and rects[j][0] != lid and R.intersection(rects[j][1]).area > 0.0002:
+                        c["blocos sobrepostos entre paredes"] += 1
+        for L in linhas:
+            def juntas(f):
+                ab = [(u, u + w) for u, w, t in f if t in ("vao", "cruzamento")]
+                fim = max(u + w for u, w, _ in f)
+                return [u + w for u, w, t in f if t not in ("vao", "cruzamento") and u + w < fim - 0.5
+                        and not any(a - 0.5 <= u + w <= b + 0.5 for a, b in ab)]
+            for k in range(len(L["fiadas"]) - 1):
+                ja, jb = juntas(L["fiadas"][k]), juntas(L["fiadas"][k + 1])
+                c["juntas verticais"] += len(ja)
+                c["juntas a prumo (< 5 cm)"] += sum(1 for x in ja if any(abs(x - y) < prumo_cm - 1e-6 for y in jb))
+        out[v["titulo"]] = c
+    return out
 
 
 def checar(dados: dict) -> list[tuple[str, str, str, bool]]:
@@ -78,6 +189,16 @@ def checar(dados: dict) -> list[tuple[str, str, str, bool]]:
         out.append(("Pavimentos repetidos", f"{v['titulo']} = {ref}",
                     "ambientes, quantitativos, vãos, paredes e paginação idênticos" if not dif else "diferem: " + ", ".join(dif),
                     not dif))
+    for t_, c in geometria(dados).items():
+        prob = {k: n for k, n in c.items() if n}
+        out.append(("Geometria", t_, "sem ambientes ou paredes sobrepostos, sem vão fora de parede" if not prob else
+                    " · ".join(f"{k}: {n}" for k, n in prob.items()), not prob))
+    for t_, c in paginacao(dados).items():
+        prob = {k: n for k, n in c.items() if n and k not in ("peças", "juntas verticais")}
+        mil = lambda n: f"{n:,}".replace(",", ".")
+        txt = (f"{mil(c['peças'])} peças e {mil(c['juntas verticais'])} juntas conferidas: sem sobreposição, sem lacuna, "
+               f"sem corte < 5 cm e sem junta a prumo")
+        out.append(("Paginação", t_, txt if not prob else " · ".join(f"{k}: {n}" for k, n in prob.items()), not prob))
     ms = {round(v["m_por_pt"], 9) for v in vistas}
     out.append(("Escala", "Escala única do documento", f"{len(ms)} escala(s) em {len(vistas)} vistas", len(ms) == 1))
     return out

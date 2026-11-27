@@ -227,8 +227,33 @@ def extrair(contexto: dict, ambientes: list[dict], pavimento: str, m_por_pt: flo
         if not any(x.o == o and abs(x.c - cc) < x.t and x.a <= a + 2 and x.b >= b - 2 for x in segs):
             seg = Segmento(o, cc, a, b, 0.15 / m_por_pt)
             seg.sobre_vao = True
+            # o trecho sobre a porta segue a parede vizinha da mesma linha (eixo e espessura),
+            # não o caixilho, que fica rente a uma das faces
+            viz = [x for x in segs if x.o == o and not getattr(x, "sobre_vao", False) and abs(x.c - cc) < x.t
+                   and (abs(x.b - a) <= 3 or abs(x.a - b) <= 3)]
+            if viz:
+                ref = max(viz, key=lambda x: x.b - x.a)
+                seg.c, seg.t = ref.c, ref.t
             segs.append(seg)
+    # pilares: peça grossa (≥ 18 cm) e curta (até 2,5× a espessura). A varredura vê cada pilar nas
+    # duas direções; fica uma peça só, no sentido do lado maior, com o tamanho desenhado (sem prolongar)
+    def _ret(s_):
+        return (s_.a, s_.c - s_.t / 2, s_.b, s_.c + s_.t / 2) if s_.o == "h" else (s_.c - s_.t / 2, s_.a, s_.c + s_.t / 2, s_.b)
+    pil = [s_ for s_ in segs if s_.t * m_por_pt >= 0.18 and (s_.b - s_.a) <= 2.5 * s_.t]
+    fora = set()
+    for i, s_ in enumerate(pil):
+        for r_ in pil[i + 1:]:
+            if s_.o == r_.o or id(s_) in fora or id(r_) in fora:
+                continue
+            A_, B_ = box(*_ret(s_)), box(*_ret(r_))
+            if A_.intersection(B_).area > 0.5 * min(A_.area, B_.area):
+                fora.add(id(s_) if (s_.b - s_.a) < (r_.b - r_.a) else id(r_))
+    segs = [s_ for s_ in segs if id(s_) not in fora]
+    orig = {id(s_): (s_.a, s_.b) for s_ in pil if id(s_) not in fora}
     segs = _prolongar(segs)
+    for s_ in segs:
+        if id(s_) in orig:
+            s_.a, s_.b = orig[id(s_)]
 
     # ambientes da vista, para saber o que há de cada lado
     polys = [(a, shapely.Polygon(a["poligono"], a.get("furos") or [])) for a in ambientes if a.get("poligono")]

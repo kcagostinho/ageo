@@ -48,6 +48,9 @@ Saídas em `--saida`:
     - Ajustes manuais em `obras/<obra>/ajustes_paredes.json`.
 11. **Paginação** (`paginacao.py`): fiada a fiada, por linha de parede (paredes colineares unidas).
     - Cantos em L alternados; T com bloco especial; família 39 com bloco 34 no canto.
+    - Cruzamento em X: a estrutural passa sobre a vedação; paredes de mesmo tipo alternam por fiada.
+    - Junta a prumo = desencontro menor que 5 cm com a fiada de baixo. Se as arrumações simples não evitam, uma busca exaustiva escolhe a sequência de peças.
+    - Corte mínimo de 5 cm. Sobra menor entre peças fixas vira enchimento de argamassa.
     - Vergas e contravergas em canaleta; cinta de respaldo (J na fachada).
     - Meio bloco junto a vãos nas fiadas pares; sobras fora do módulo contadas como corte.
     - Gera a comparação das famílias 29 e 39 e o ajuste que cada parede precisaria para fechar no módulo.
@@ -71,7 +74,9 @@ Saídas em `--saida`:
     - um vão de varanda por ambiente de varanda;
     - nenhum vão fora de parede;
     - pavimentos repetidos idênticos à referência;
-    - escala única.
+    - escala única;
+    - geometria: ambientes sobrepostos, parede sobre ambiente, parede sem comprimento, vão fora da parede;
+    - paginação refeita bloco a bloco em planta, fiada a fiada: peças sobrepostas (na parede e entre paredes), lacunas, cortes < 5 cm, juntas a prumo.
 ## Limitações conhecidas
 
 - Depende de PDF vetorial com camadas no padrão do CAD (nomes AIA: `A-WALL`, `A-DOOR`…). PDF escaneado não funciona.

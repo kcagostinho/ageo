@@ -178,8 +178,12 @@ def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
             d_["vista"] = vid
             # trechos curtos que são o muro inclinado picado em degraus (o 3D usa o muro inteiro):
             # no térreo viram muro, para não entrarem como fachada na pintura nem no orçamento
-            if incl and "sub" not in v.titulo.lower() and _trecho_de_muro_inclinado(d_, incl, m):
-                d_["tipo"], d_["fachada"], d_["motivo"] = "muro", False, "trecho do muro inclinado (divisa)"
+            if incl and _trecho_de_muro_inclinado(d_, incl, m):
+                d_["trecho_muro_inclinado"] = True
+                if "sub" in v.titulo.lower():
+                    d_["motivo"] = "trecho do muro inclinado (arrimo a definir)"
+                else:
+                    d_["tipo"], d_["fachada"], d_["motivo"] = "muro", False, "trecho do muro inclinado (divisa)"
             paredes_out.append(d_)
         for i, a in enumerate(ambs):
             ambientes_out.append({

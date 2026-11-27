@@ -157,13 +157,13 @@ td.n,th.n{text-align:right}tr.g td{color:var(--mut);font-size:11.5px;text-transf
 <div class="grid">
 <div class="card"><div class="plan" id="plan"></div></div>
 <div class="card pad"><h2 id="et">Elevação</h2><div class="info" id="ei">Selecione uma parede na planta.</div><div class="elev" id="elev"></div>
-<div class="leg"><span><i style="background:var(--bloco)"></i>inteiro</span><span><i style="background:var(--meio)"></i>meio</span><span><i style="background:var(--esp)"></i>amarração (L/T)</span><span><i style="background:var(--can)"></i>canaleta (cinta, verga, contraverga)</span><span><i style="background:var(--corte)"></i>corte/compensador</span><span><i style="background:transparent;border-style:dashed"></i>vão</span></div>
+<div class="leg"><span><i style="background:var(--bloco)"></i>inteiro</span><span><i style="background:var(--meio)"></i>meio</span><span><i style="background:var(--esp)"></i>amarração (L/T)</span><span><i style="background:var(--can)"></i>canaleta (cinta, verga, contraverga)</span><span><i style="background:var(--corte)"></i>corte/compensador</span><span><i style="background:#8F8A80"></i>enchimento de argamassa (< 5 cm)</span><span><i style="background:var(--dim);opacity:.25"></i>parede que cruza</span><span><i style="background:transparent;border-style:dashed"></i>vão</span></div>
 </div></div>
 <div class="card pad" style="margin-top:12px"><h2 id="rt"></h2><table><thead><tr><th>Item</th><th class="n">Família 29</th><th class="n">Família 39</th></tr></thead><tbody id="rb"></tbody></table></div>
 </div>
 <script>
 const D=__DADOS__;let fam="39",sel=null;
-const COR={inteiro:"var(--bloco)",meio:"var(--meio)",especial:"var(--esp)",J:"var(--can)",U:"var(--can)",corte:"var(--corte)"};
+const COR={inteiro:"var(--bloco)",meio:"var(--meio)",especial:"var(--esp)",J:"var(--can)",U:"var(--can)",corte:"var(--corte)",enchimento:"#8F8A80"};
 const f0=n=>n==null?"—":n.toLocaleString("pt-BR",{maximumFractionDigits:1});
 function planta(){
  const [x,y,w,h]=D.caixa,NS="http://www.w3.org/2000/svg",svg=document.createElementNS(NS,"svg");svg.setAttribute("viewBox",`${x} ${y} ${w} ${h}`);
@@ -182,7 +182,8 @@ function elevacao(){
  const W=(xmax-xmin)*esc+20,Ht=n*H*esc+20,svg=document.createElementNS(NS,"svg");svg.setAttribute("viewBox",`0 0 ${W} ${Ht}`);svg.setAttribute("width",Math.max(W,300));
  L.fiadas.forEach((f,k)=>{const yy=Ht-10-(k+1)*H*esc;f.forEach(([u,w,t])=>{const r=document.createElementNS(NS,"rect");
   r.setAttribute("x",10+(u-xmin)*esc+0.5);r.setAttribute("y",yy+0.5);r.setAttribute("width",Math.max(w*esc-1,0.5));r.setAttribute("height",H*esc-1);
-  if(t==="vao"){r.setAttribute("fill","none");r.setAttribute("stroke","var(--dim)");r.setAttribute("stroke-dasharray","3 2")}else{r.setAttribute("fill",COR[t]||"var(--bloco)");r.setAttribute("stroke","rgba(0,0,0,.25)")}
+  if(t==="vao"){r.setAttribute("fill","none");r.setAttribute("stroke","var(--dim)");r.setAttribute("stroke-dasharray","3 2")}
+  else if(t==="cruzamento"){r.setAttribute("fill","var(--dim)");r.setAttribute("opacity","0.25")}else{r.setAttribute("fill",COR[t]||"var(--bloco)");r.setAttribute("stroke","rgba(0,0,0,.25)")}
   const tt=document.createElementNS(NS,"title");tt.textContent=`${t} · ${w.toFixed(0)} cm`;r.appendChild(tt);svg.appendChild(r)})});
  box.innerHTML="";box.appendChild(svg);
  document.getElementById("et").textContent=`Elevação · ${L.id} (${L.tipo})`;
