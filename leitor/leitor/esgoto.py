@@ -49,7 +49,7 @@ def ramais_da_planta(pg, caixa, T, m_pt, minimo_m=0.06, dn_max=100):
     s, tx_, ty_ = T
     out = []
     bons = [i for i, sg in enumerate(segs) if math.dist(*sg) * m_pt >= 0.04]
-    pontas = ligar(segs, bons, raio=12.0)
+    pontas = ligar(segs, bons, raio=12.0, ponte=0.30 / m_pt)       # junção/luva: até 30 cm de vão na planta
     for i in bons:
         sg0 = segs[i]
         sg = tuple(tuple(p) for p in pontas.get(i, sg0))
@@ -67,6 +67,69 @@ def ramais_da_planta(pg, caixa, T, m_pt, minimo_m=0.06, dn_max=100):
                     "a": [round(s * sg[0][0] + tx_, 2), round(s * sg[0][1] + ty_, 2)],
                     "b": [round(s * sg[1][0] + tx_, 2), round(s * sg[1][1] + ty_, 2)]})
     return out
+
+
+def caixas_da_planta(pg, caixa, T, m_pt, lado=(0.08, 0.21)):
+    """Caixas sifonadas e ralos da planta: o símbolo tem um quadrado ('qu') de ~10 cm ou um círculo de ~15 cm
+    (caixa redonda). Devolve centros (x, y na arquitetura) e o lado/diâmetro (m)."""
+    R = pg.rotation_matrix
+    s, tx_, ty_ = T
+    achados = []
+    for d in pg.get_drawings():
+        its = d["items"]
+        quadrado = len(its) == 1 and its[0][0] == "qu"
+        redondo = len(its) >= 4 and all(it[0] == "c" for it in its)          # caixa sifonada redonda
+        if not (quadrado or redondo):
+            continue
+        r = d["rect"] * R
+        if not (caixa[0] <= r.x0 <= caixa[2] and caixa[1] <= r.y0 <= caixa[3]):
+            continue
+        w, h = r.width * m_pt, r.height * m_pt
+        if lado[0] <= w <= lado[1] and abs(w - h) < 0.02:
+            c = ((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2)
+            for a in achados:
+                if math.dist(a[0], c) < 2.5:
+                    a[1] = max(a[1], w)
+                    break
+            else:
+                achados.append([c, w])
+    return [{"xy": [round(s * c[0] + tx_, 2), round(s * c[1] + ty_, 2)], "lado_m": round(w, 3)} for c, w in achados]
+
+
+def detalhar(ramais, caixas, colunas, m_pt, z_piso):
+    """Peças do 3D de um andar: subida até o aparelho na ponta livre do ramal, ligação ao tubo de queda,
+    conexões onde os ramais se encontram e caixas/ralos no piso. Devolve (tubos extras, peças)."""
+    pontas = []
+    for k, r in enumerate(ramais):
+        pontas += [(tuple(r["a"]), k), (tuple(r["b"]), k)]
+    z_r = z_piso + Z_RAMAL
+    extras, pecas = [], []
+    perto = lambda P, Q, d: math.dist(P, Q) * m_pt <= d
+    usadas = set()
+    for P, k in pontas:
+        if (P, k) in usadas:
+            continue
+        juntas = [(Q, j) for Q, j in pontas if j != k and perto(P, Q, 0.06)]
+        dn = ramais[k]["dn"]
+        if juntas:                                     # encontro de ramais: junção / joelho
+            usadas |= {(P, k)} | set(juntas)
+            pecas.append({"tipo": "conexao", "xy": list(P), "z": round(z_r, 3), "dn": max([dn] + [ramais[j]["dn"] for _, j in juntas])})
+            continue
+        cx = next((c for c in caixas if perto(P, c["xy"], 0.25)), None)
+        col = next((c for c in colunas if c["id"].startswith(("TQ", "V")) and perto(P, c["xy"], 0.35)), None)
+        if col:                                        # chega no tubo de queda / ventilação
+            extras.append({"dn": dn, "a": list(P), "b": list(col["xy"]), "za": z_r, "zb": z_r, "papel": f"ligação ao {col['id']}"})
+            pecas.append({"tipo": "conexao", "xy": list(col["xy"]), "z": round(z_r, 3), "dn": max(dn, 75)})
+        elif cx:                                       # sobe para a caixa sifonada / ralo
+            extras.append({"dn": dn, "a": list(P), "b": list(P), "za": z_r, "zb": z_piso - 0.05, "papel": "subida à caixa/ralo"})
+        else:                                          # ponta livre: subida ao aparelho
+            topo = z_piso + (0.0 if dn >= 100 else 0.50)
+            extras.append({"dn": dn, "a": list(P), "b": list(P), "za": z_r, "zb": topo,
+                           "papel": "subida ao vaso (até o piso)" if dn >= 100 else "subida ao lavatório/pia/tanque (premissa 0,50 m)"})
+            pecas.append({"tipo": "conexao", "xy": list(P), "z": round(z_r, 3), "dn": dn})
+    for c in caixas:
+        pecas.append({"tipo": "caixa", "xy": c["xy"], "z": round(z_piso, 3), "lado": c["lado_m"]})
+    return extras, pecas
 
 
 def caixas_e_ralos(tx) -> list[dict]:
@@ -126,7 +189,7 @@ def ler_esgoto(pdf, dados: dict, log=print) -> dict:
             log(f"  isométrico {nome} (pág. {pg.number + 1}): {len(v['rotulos'])} rótulos, {rep} repetidos no mesmo tubo, "
                 + ", ".join(f"DN{k} {q:.2f}" for k, q in sorted(tot.items())))
     # 2. plantas: registro, balões (TQ/V), ramais (tipo) e rede com rótulos (térreo/subsolo)
-    plantas_out, pontos, ramais, redes = [], defaultdict(dict), [], {}
+    plantas_out, pontos, ramais, redes, caixas_pav = [], defaultdict(dict), [], {}, {}
     for pg in doc:
         tx = textos(pg)
         for p in plantas(pg, tx, NOMES_PLANTA):
@@ -146,6 +209,7 @@ def ler_esgoto(pdf, dados: dict, log=print) -> dict:
             if p["pavimento"].endswith("ºPavimento"):
                 for r in ramais_da_planta(pg, cx, T, m_pt):
                     ramais.append({**r, "pav": p["pavimento"], "vista": va["id"]})
+                caixas_pav[p["pavimento"]] = caixas_da_planta(pg, cx, T, m_pt)
             elif p["pavimento"] in ("Pavimento Térreo", "Sub-Solo"):
                 redes[p["pavimento"]] = {**rede_da_planta(pg, cx, T, m_pt), "vista": va["id"]}
             plantas_out.append({"pavimento": p["pavimento"], "pagina": pg.number + 1, "vista_arq": va["id"], "escala": round(s, 5),
@@ -166,6 +230,13 @@ def ler_esgoto(pdf, dados: dict, log=print) -> dict:
         fora = {k: v for k, v in desv.items() if v > 30}
         if fora:
             avisos.append(f"coluna {c}: balão fora da prumada em {fora} (mm) — usada a mediana")
+    # detalhes do 3D por andar: subidas aos aparelhos, ligação ao tubo de queda, conexões, caixas e ralos
+    extras_3d, pecas_3d = [], []
+    for pav, cxs_ in caixas_pav.items():
+        rs = [r for r in ramais if r["pav"] == pav]
+        ex, pc = detalhar(rs, cxs_, colunas, m1, niveis[pav])
+        extras_3d += [{**e, "pav": pav} for e in ex]
+        pecas_3d += [{**q, "pav": pav} for q in pc]
     # 3. contagem, cada tubo uma vez
     col_views = [v for v in vistas if v["titulo"].startswith("Coletores")]
     apt_views = [v for v in vistas if not v["titulo"].startswith("Coletores")]
@@ -259,7 +330,7 @@ def ler_esgoto(pdf, dados: dict, log=print) -> dict:
              "isometricos": [{k: v[k] for k in ("titulo", "pagina", "repetidos", "sem_tubo", "rotulos", "colunas", "codigos")} |
                              {"n_tubos": len(v["itens"])} for v in vistas],
              "plantas": plantas_out, "colunas": colunas, "apartamentos": apartamentos, "coletores": coletores,
-             "ramais": ramais, "conexoes": dict(conexoes), "conexoes_aptos": dict(cod_apt),
+             "ramais": ramais, "extras_3d": extras_3d, "pecas_3d": pecas_3d, "conexoes": dict(conexoes), "conexoes_aptos": dict(cod_apt),
              "conexoes_coletores": {k: max(cod_col.get(k, 0), cod_pl.get(k, 0)) for k in set(cod_col) | set(cod_pl)},
              "tabela_projetista": tabela, "avisos": avisos}
     saida["auditoria"] = auditar(saida, dados)

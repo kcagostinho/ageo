@@ -392,13 +392,53 @@ def _intersecao(s1, s2):
     return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
 
 
-def ligar(segs, idx, raio=10.0):
-    """Leva as pontas dos trechos ao centro da conexão: joelho/tê = cruzamento dos eixos; luva/registro
-    (trechos alinhados) = ponto médio; ponta que encosta no meio de outro trecho = projeção nele.
-    Devolve {i: [A, B]} com as pontas ajustadas."""
-    pontas = {i: [list(segs[i][0]), list(segs[i][1])] for i in idx}
+def _pontes(segs, idx, ponte, desvio=1.6):
+    """Pares de pontas de trechos alinhados que se olham através de um vão de até 'ponte' pt (o corpo do
+    registro, da luva ou do tê interrompe o traço do tubo no desenho). Devolve {(i, e): ponto médio}."""
+    cands = []
     for i in idx:
         for e in (0, 1):
+            P, Q0 = segs[i][e], segs[i][1 - e]
+            n = math.dist(P, Q0)
+            if n < 1e-6:
+                continue
+            dx, dy = (P[0] - Q0[0]) / n, (P[1] - Q0[1]) / n
+            for j in idx:
+                if j <= i:
+                    continue
+                da = abs(_ang(segs[i]) - _ang(segs[j]))
+                if min(da, 180 - da) > 3:
+                    continue
+                for f in (0, 1):
+                    R = segs[j][f]
+                    vx, vy = R[0] - P[0], R[1] - P[1]
+                    ao_longo = vx * dx + vy * dy
+                    perp = abs(vx * dy - vy * dx)
+                    # a outra ponta de j tem de estar mais longe (os trechos se olham, não se sobrepõem)
+                    S = segs[j][1 - f]
+                    if 0 < ao_longo <= ponte and perp <= desvio and (S[0] - P[0]) * dx + (S[1] - P[1]) * dy > ao_longo:
+                        cands.append((ao_longo, (i, e), (j, f), ((P[0] + R[0]) / 2, (P[1] + R[1]) / 2)))
+    usados, out = set(), {}
+    for _, a, b, M in sorted(cands):
+        if a in usados or b in usados:
+            continue
+        usados |= {a, b}
+        out[a] = out[b] = M
+    return out
+
+
+def ligar(segs, idx, raio=10.0, ponte=0.0):
+    """Leva as pontas dos trechos ao centro da conexão: joelho/tê = cruzamento dos eixos; luva/registro
+    (trechos alinhados) = ponto médio, também através do corpo da peça (até 'ponte' pt); ponta que encosta
+    no meio de outro trecho = projeção nele. Devolve {i: [A, B]} com as pontas ajustadas."""
+    pontas = {i: [list(segs[i][0]), list(segs[i][1])] for i in idx}
+    feitas = _pontes(segs, idx, ponte) if ponte > 0 else {}
+    for (i, e), M in feitas.items():
+        pontas[i][e] = list(M)
+    for i in idx:
+        for e in (0, 1):
+            if (i, e) in feitas:
+                continue
             P = segs[i][e]
             melhor = None
             for j in idx:
@@ -509,7 +549,7 @@ def ler_coluna(pg, caixa, tx_pag, excl, niveis: dict, pavs=PAVS_TIPO):
         return round(s, 4), round(zref + (Yref + s * k * sa - Y) / k, 4)
 
     idx = [i for i in tipo if tipo[i] in ("v", "h")]
-    pontas = ligar(segs, idx)
+    pontas = ligar(segs, idx, raio=12.0, ponte=0.22 * k)      # registro/luva: até ~22 cm de vão no desenho
     # rótulos -> trechos (um por tubo desenhado; rótulo repetido no mesmo tubo conta uma vez)
     por_seg = defaultdict(list)
     for ro, j, como, d in v["rotulos"]:

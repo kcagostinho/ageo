@@ -53,7 +53,7 @@
 |---|---|---|
 | H1a | Rede de água fria das prumadas dos apartamentos (isométricos) | **Feito** |
 | H1b | Água fria no 3D (modo "Instalações") | **Feito** (prumadas, barrilete, térreo, subsolo e colunas do prédio) |
-| H1c | Auditoria de interferências + preço SINAPI | **Feito**: 0 conflitos; R$ 27.569,26 (SINAPI 10/2026, custo direto) |
+| H1c | Auditoria de interferências + preço SINAPI | **Feito**: 0 conflitos; R$ 27.508,68 (SINAPI 10/2026, custo direto) |
 | H1d | Barrilete, alimentação (AL), extravasor, térreo e subsolo | **Feito** no quantitativo. Posição no 3D: horizontais pela planta (altura por premissa); 43 m de verticais do barrilete/térreo só no quantitativo |
 | H2 | Esgoto: quantitativo, 3D, auditoria e preço | **Feito** (seção 6) |
 
@@ -122,9 +122,9 @@
 | Grupo | Custo |
 |---|---|
 | Tubos (por DN e tipo de trecho: prumada, ramal de distribuição, ramal/sub-ramal) | R$ 10.497,36 |
-| Conexões | R$ 9.920,03 |
+| Conexões | R$ 9.859,45 |
 | Registros e hidrômetro | R$ 7.151,87 |
-| **Total** | **R$ 27.569,26** |
+| **Total** | **R$ 27.508,68** |
 
 **Premissas do preço:**
 - **Tipo de trecho.** O SINAPI tem composição por tipo de trecho, porque a produtividade muda: o DN25 custa R$ 6,80/m na prumada e R$ 30,74/m no sub-ramal. No modelo:
@@ -205,7 +205,7 @@ Os isométricos são perspectivas de verdade: os ramais correm em duas direçõe
 | Conexões | R$ 26.467,29 |
 | Caixas e ralos (quantidade da tabela do projetista) | R$ 11.517,94 |
 | **Total esgoto** | **R$ 60.628,24** |
-| **Água fria + esgoto** | **R$ 88.197,50** |
+| **Água fria + esgoto** | **R$ 88.136,92** |
 
 **Premissas do preço:**
 - **Adaptador de saída de vaso** (código 01): sem composição no SINAPI; usado o preço do joelho 90° DN100 do ramal.
@@ -219,3 +219,28 @@ Os isométricos são perspectivas de verdade: os ramais correm em duas direçõe
 1. **Banheiro do tipo D:** faltam rótulos (um trecho do tubo de queda e dois DN40 de 0,12 m) que existem nos outros tipos.
 2. **Shaft dos tubos de queda:** os TQ DN75/100 ficam no ambiente, junto à parede. Indicar o fechamento (shaft/enchimento) no arquitetônico.
 3. **Rótulos repetidos e coletores desenhados em várias vistas:** como na água fria, somar o desenho dá mais que a tabela.
+
+
+## 7. Detalhe das peças no 3D (27/11/2026)
+
+**Água fria:**
+- O tubo passa contínuo pelo corpo do registro, da luva e do tê. No desenho o traço é interrompido pela peça (até ~22 cm). Antes ficava um vão no 3D.
+- Cada peça aparece pelo tipo da tabela do projetista:
+
+  | Peça | No 3D |
+  |---|---|
+  | Joelho e tê | nó escuro |
+  | Bucha e luva | nó menor |
+  | Ponto de consumo (joelho com bucha de latão) | latão |
+  | Registro e hidrômetro | corpo cromado com volante vermelho |
+
+- Os tês que ligam o ramal à coluna (até 20 cm do eixo) contam como peça da prumada no preço: R$ 27.508,68.
+
+**Esgoto:**
+- Os ramais da planta são emendados através das conexões (até 30 cm).
+- Onde dois ramais se encontram, entra uma junção ou um joelho.
+- **Ponta livre do ramal:** vira subida até o aparelho, por premissa:
+  - DN100: até o piso (vaso);
+  - DN40/50: até 0,50 m (lavatório, pia, tanque).
+- **Ponta junto do tubo de queda ou da ventilação:** vira ligação horizontal até a coluna, com a junção.
+- **Caixas sifonadas e ralos:** pelos quadrados da planta (8 por andar, nos banheiros), com a subida do ramal até a caixa. As caixas redondas da tabela não estão desenhadas como símbolo na planta dos andares e entram só no quantitativo.

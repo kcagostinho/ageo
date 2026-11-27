@@ -161,6 +161,16 @@ def montar(dados: dict) -> dict:
                               "esgoto (quantitativo pelos isométricos; altura por premissa: sob a laje)", "es"])
                 hid_por_pav.setdefault(r["pav"], {"t": [], "c": []})["t"].append(
                     [*cve(*r["a"]), round(zr, 3), *cve(*r["b"]), round(zr, 3), r["dn"], len(lista) - 1, 1])
+            for n, e in enumerate(es_h.get("extras_3d", []), 1):
+                lista.append([f"ES-{e['pav'][:2]}-x{n:03d}", "ramal", e["pav"], e["dn"],
+                              round(abs(e["zb"] - e["za"]) + math.dist(e["a"], e["b"]) * m1, 2),
+                              f"{e['papel']} (posição pela planta; altura por premissa)", "v" if e["a"] == e["b"] else "h",
+                              "esgoto: peça do 3D (o quantitativo vem dos isométricos)", "es"])
+                hid_por_pav.setdefault(e["pav"], {"t": [], "c": []})["t"].append(
+                    [*cve(*e["a"]), round(e["za"], 3), *cve(*e["b"]), round(e["zb"], 3), e["dn"], len(lista) - 1, 1])
+            for q in es_h.get("pecas_3d", []):
+                hid_por_pav.setdefault(q["pav"], {"t": [], "c": []}).setdefault("p", []).append(
+                    [*cve(*q["xy"]), round(q["z"], 3), 1 if q["tipo"] == "caixa" else 0, q.get("lado") or 0, q.get("dn") or 0])
             ordem = sorted(niv.items(), key=lambda kv: kv[1])
             for c in es_h["colunas"]:
                 dn = int(str(c.get("diametro") or "ø100").replace("ø", "") or 100)
@@ -369,7 +379,8 @@ def montar(dados: dict) -> dict:
             zz = z[v["titulo"]]
             # [x, altura acima do piso do andar, profundidade] como o three.js (y para cima)
             hid_andar = {"t": [[a, _r(c - zz), b, d, _r(f - zz), e, dn, i, *sy] for a, b, c, d, e, f, dn, i, *sy in hp["t"]],
-                         "c": [[a, _r(c - zz), b, k, col] for a, b, c, k, col in hp["c"]]}
+                         "c": [[a, _r(c - zz), b, k, col] for a, b, c, k, col in hp["c"]],
+                         "p": [[a, _r(c - zz), b, tp, lado, dn] for a, b, c, tp, lado, dn in hp.get("p", [])]}
             tot = {}
             for x in hp["t"]:
                 if (x[8] if len(x) > 8 else 0) == 0:
@@ -562,6 +573,8 @@ const raioDN=dn=>Math.max((OD_DN[dn]||0.025)*0.8,0.014);
 const COR_ES={40:0xD4A373,50:0xB5835A,75:0x8D5B34,100:0x6B4226,150:0x4A2C17},OD_ES={40:0.040,50:0.050,75:0.075,100:0.110,150:0.160};
 const raioES=dn=>Math.max((OD_ES[dn]||0.1)*0.6,0.016);
 const COR_REG=0xC0392B,COR_CON=0x5D6D7E;
+const tipoPecaG=c=>{const d=((D.hid&&D.hid.cod[String(c).padStart(2,"0")])||"").toUpperCase();
+ if(c>=70||d.startsWith("REGISTRO")||d.startsWith("HIDR"))return "reg";if(d.includes("BUCHA DE LAT"))return "pto";if(d.startsWith("BUCHA")||d.startsWith("LUVA"))return "luva";return "no"};
 const COR_PECA={0:0xD9D6CC,1:0xB4AE9E,2:0x8E7CC3,3:0xE08A1E,4:0xF2B24C,5:0x262626,6:0x8F8A80};
 const COR_PECA_VED={0:0xB9CFE4,1:0x8EAFCF,3:0xE08A1E,4:0xF2B24C,5:0x262626,6:0x8F8A80};
 const NOME_PECA=[["inteiro 14×19×39",0xD9D6CC],["meio 14×19×19",0xB4AE9E],["amarração 34/54",0x8E7CC3],["canaleta J (cinta fachada)",0xE08A1E],
@@ -702,11 +715,28 @@ D.andares.forEach((A,ia)=>{
    arr.forEach((r,i)=>{const a=new THREE.Vector3(r[0],r[1],r[2]),b=new THREE.Vector3(r[3],r[4],r[5]),d=b.clone().sub(a),L=Math.max(d.length(),0.004);
     M.compose(a.clone().add(b).multiplyScalar(0.5),new THREE.Quaternion().setFromUnitVectors(Yv,d.normalize()),new THREE.Vector3(rr,L,rr));me.setMatrixAt(i,M);ids[i]=r[7]});
    me.instanceMatrix.needsUpdate=true;me.computeBoundingSphere();me.userData={tipo:"hid",ids,A,raio:rr,sys:sy};me.visible=false;g.add(me);hidM.push(me);pick.push(me)});
-  const sph=new THREE.SphereGeometry(1,12,8);
-  [[A.hid.c.filter(c=>c[3]<70),COR_CON,0.024],[A.hid.c.filter(c=>c[3]>=70),COR_REG,0.034]].forEach(([arr,cor,r])=>{if(!arr.length)return;
-   const me=new THREE.InstancedMesh(sph,mat({color:cor}),arr.length);
+  const sph=new THREE.SphereGeometry(1,14,10);
+  // água fria: peça pelo tipo (descrição da tabela do projetista)
+  const tipoPeca=c=>{const d=(D.hid.cod[String(c).padStart(2,"0")]||"").toUpperCase();
+   if(c>=70||d.startsWith("REGISTRO")||d.startsWith("HIDR"))return "reg";if(d.includes("BUCHA DE LAT"))return "pto";
+   if(d.startsWith("BUCHA")||d.startsWith("LUVA"))return "luva";return "no"};
+  const EST={no:[COR_CON,0.026],luva:[0x8E9AA6,0.020],pto:[0xC9A227,0.024],reg:[0xC5CBD2,0.032]};
+  const grupoP={};A.hid.c.forEach(c=>{const t=tipoPeca(c[3]);(grupoP[t]=grupoP[t]||[]).push(c)});
+  Object.entries(grupoP).forEach(([t,arr])=>{const [cor,r]=EST[t];const me=new THREE.InstancedMesh(sph,mat({color:cor}),arr.length);
    arr.forEach((c,i)=>{M.compose(new THREE.Vector3(c[0],c[1],c[2]),new THREE.Quaternion(),new THREE.Vector3(r,r,r));me.setMatrixAt(i,M)});
-   me.instanceMatrix.needsUpdate=true;me.computeBoundingSphere();me.userData={tipo:"con",arr,A,raio:r,sys:0};me.visible=false;g.add(me);hidM.push(me);pick.push(me)});
+   me.instanceMatrix.needsUpdate=true;me.computeBoundingSphere();me.userData={tipo:"con",arr,A,raio:r,sys:0};me.visible=false;g.add(me);hidM.push(me);pick.push(me);
+   if(t==="reg"){const vol=new THREE.InstancedMesh(new THREE.CylinderGeometry(1,1,1,16),mat({color:COR_REG}),arr.length);
+    arr.forEach((c,i)=>{M.compose(new THREE.Vector3(c[0],c[1]+0.034,c[2]),new THREE.Quaternion(),new THREE.Vector3(0.028,0.012,0.028));vol.setMatrixAt(i,M)});
+    vol.instanceMatrix.needsUpdate=true;vol.computeBoundingSphere();vol.userData={sys:0};vol.visible=false;g.add(vol);hidM.push(vol)}});
+  // esgoto: conexões (junções/joelhos) e caixas sifonadas/ralos no piso
+  const pE=A.hid.p||[];const nos=pE.filter(q=>q[3]===0),cxs=pE.filter(q=>q[3]===1);
+  if(nos.length){const me=new THREE.InstancedMesh(sph,mat({color:0x5A3A22}),nos.length);
+   nos.forEach((q,i)=>{const r=Math.max((OD_ES[q[5]]||0.05)*0.75,0.03);M.compose(new THREE.Vector3(q[0],q[1],q[2]),new THREE.Quaternion(),new THREE.Vector3(r,r,r));me.setMatrixAt(i,M)});
+   me.instanceMatrix.needsUpdate=true;me.computeBoundingSphere();me.userData={sys:1};me.visible=false;g.add(me);hidM.push(me)}
+  if(cxs.length){const cx=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),mat({color:0xE8E6E1}),cxs.length),gr=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),mat({color:0x9A9A9A}),cxs.length);
+   cxs.forEach((q,i)=>{const L=Math.max(q[4],0.1);M.compose(new THREE.Vector3(q[0],q[1]-0.09,q[2]),new THREE.Quaternion(),new THREE.Vector3(L*1.4,0.18,L*1.4));cx.setMatrixAt(i,M);
+    M.compose(new THREE.Vector3(q[0],q[1]+0.004,q[2]),new THREE.Quaternion(),new THREE.Vector3(L,0.006,L));gr.setMatrixAt(i,M)});
+   [cx,gr].forEach(m=>{m.instanceMatrix.needsUpdate=true;m.computeBoundingSphere();m.userData={sys:1};m.visible=false;g.add(m);hidM.push(m)})}
  }
  // cobertura: telhados (fibrocimento i=10%), calhas, laje e reservatórios da caixa d'água
  if(A.cob){
@@ -849,7 +879,7 @@ function legenda(){
    <div style="margin-top:6px"><i style="display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px;background:rgb(${SEMCUSTO.map(x=>Math.round(x*255)).join(",")})"></i>sem custo na B4 (concreto, muros, subsolo)</div>
    <div class="mut" style="margin-top:6px">Clique numa parede ou num ambiente para ver de onde vem o custo. Escala do 2º ao 98º percentil.</div>`;
   const s=el("metrica");s.value=S.metrica;s.onchange=e=>{S.metrica=e.target.value;atualizar()};return}
- if(S.modo==="inst"){el("legenda").innerHTML="<h3>Legenda</h3>"+[...Object.entries(COR_DN).map(([k,c])=>["água fria DN"+k,c]),["conexão",COR_CON],["registro",COR_REG],...(D.hid&&D.hid.es?Object.entries(COR_ES).map(([k,c])=>["esgoto DN"+k,c]):[])]
+ if(S.modo==="inst"){el("legenda").innerHTML="<h3>Legenda</h3>"+[...Object.entries(COR_DN).map(([k,c])=>["água fria DN"+k,c]),["joelho/tê",COR_CON],["ponto de consumo",0xC9A227],["registro",COR_REG],...(D.hid&&D.hid.es?[...Object.entries(COR_ES).map(([k,c])=>["esgoto DN"+k,c]),["junção/joelho (esgoto)",0x5A3A22],["caixa sifonada / ralo",0xE8E6E1]]:[])]
   .map(([t,c])=>`<span style="display:inline-flex;align-items:center;margin:0 10px 4px 0"><i style="display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;background:#${c.toString(16).padStart(6,"0")}"></i>${esc(t)}</span>`).join("")
   +`<div class="mut" style="margin-top:6px">Posição: coluna pelo balão da planta, ramal ao longo da parede pela planta e alturas pelo isométrico de cada prumada (cotas de piso). Diâmetro do tubo engrossado para aparecer. Paredes em transparência.</div>`;return}
  const it=S.modo==="ambientes"?Object.entries(COR_AMB).map(([k,c])=>[NOME_AMB[k],c]):S.modo==="paginacao"?NOME_PECA:Object.entries(COR_PAREDE).map(([k,c])=>[k,c]);
@@ -916,7 +946,7 @@ function selecionar(hit){
    <tr><td class="k">Fonte</td><td>${esc(orig)}</td></tr><tr><td class="k">Rótulo ligado por</td><td>${como==="chamada"?"linha de chamada":como==="perto"?"proximidade":esc(como)}</td></tr>
    ${D.hid.orc&&D.hid.orc.custo[id]!=null?`<tr><td class="k">Custo (SINAPI ${esc(D.hid.orc.mes)})</td><td>${brl(D.hid.orc.custo[id])} (tubo instalado)</td></tr>`:""}</table>`}
   else{const c=u.arr[hit.instanceId],k=String(c[3]).padStart(2,"0");
-   el("info").innerHTML=`<h3>Água fria · ${esc(u.A.nome)}</h3><div class="big">${c[3]>=70?"Registro":"Conexão"} ${esc(k)}</div><div class="mut">coluna ${esc(c[4])}</div><table>
+   const tp=tipoPecaG(c[3]);el("info").innerHTML=`<h3>Água fria · ${esc(u.A.nome)}</h3><div class="big">${{reg:"Registro",pto:"Ponto de consumo",luva:"Bucha/luva",no:"Conexão"}[tp]} ${esc(k)}</div><div class="mut">coluna ${esc(c[4])}</div><table>
    <tr><td class="k">Peça (tabela do projeto)</td><td>${esc(D.hid.cod[k]||"—")}</td></tr><tr><td class="k">Altura</td><td>${nf(c[1])} m do piso</td></tr></table>`}
  }else if(u.tipo==="amb"){const a=u.a;S.sel={tipo:"amb",obj:o};
   el("info").innerHTML=`<h3>Ambiente · ${esc(u.A.nome)}</h3><div class="big">${esc(a.nome)}</div><div class="mut">${esc(a.unidade||NOME_AMB[a.tipo]||"")}</div><table>

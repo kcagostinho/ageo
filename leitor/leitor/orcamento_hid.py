@@ -122,7 +122,7 @@ def calcular(af: dict, sin: dict, prem: dict, m_tipo: float) -> dict:
     pecas = Counter()
     for cn in af["conexoes"]:
         c = colunas_xy.get(cn["col"])
-        na_col = c and math.dist(cn["p"][:2], c) * m_tipo < 0.03 and cn["cod"] in NA_COLUNA
+        na_col = c and math.dist(cn["p"][:2], c) * m_tipo < 0.20 and cn["cod"] in NA_COLUNA     # tê da coluna (o nó pode cair na boca do ramal)
         pecas[(cn["cod"], PRU if na_col else SUB)] += 1
     for pav, cods in ((af.get("complemento") or {}).get("codigos_plantas") or {}).items():
         for cod, n in cods.items():
