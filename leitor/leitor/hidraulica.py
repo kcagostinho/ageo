@@ -252,8 +252,11 @@ def casar_rotulos(rots, segs, finas, folga=3.0, perto=4.0, raio=24.0, esc=134.0)
     return res
 
 
-def regioes_tabela(tx, folga=(70, 40, 60, 8)):
-    """Retângulos das tabelas do projetista (linhas com descrição de material)."""
+def regioes_tabela(tx, folga=(70, 40, 60, 8), pg=None):
+    """Retângulos das tabelas do projetista (linhas com descrição de material).
+
+    Com a página, o retângulo é a moldura desenhada da tabela (traço fino que encosta no texto), e não o texto
+    mais uma margem fixa: a margem engolia o código de conexão de um isométrico encostado na tabela."""
     linhas = [t for t in tx if re.search(r"TIGRE|Sold[aá]vel|Quantidade|Descri", t["t"]) and len(t["t"]) > 6]
     if not linhas:
         return []
@@ -267,7 +270,33 @@ def regioes_tabela(tx, folga=(70, 40, 60, 8)):
                 break
         else:
             grupos.append(list(r))
-    return [(g[0] - folga[0], g[1] - folga[1], g[2] + folga[2], g[3] + folga[3]) for g in grupos]
+    largos = [(g[0] - folga[0], g[1] - folga[1], g[2] + folga[2], g[3] + folga[3]) for g in grupos]
+    if pg is None:
+        return largos
+    R = pg.rotation_matrix
+    tracos = []
+    for d in pg.get_drawings():
+        if d["type"] == "s" and (d.get("width") or 0) <= 0.3:
+            r = d["rect"] * R
+            tracos.append((r.x0, r.y0, r.x1, r.y1))
+    out = []
+    for g, L in zip(grupos, largos):
+        # só traços dentro da região larga; cresce a partir do texto pelos traços que se tocam
+        cand = [r for r in tracos if r[0] >= L[0] - 20 and r[2] <= L[2] + 20 and r[1] >= L[1] - 20 and r[3] <= L[3] + 20]
+        S = list(g)
+        for _ in range(4):
+            toca = [r for r in cand if r[0] <= S[2] + 2 and r[2] >= S[0] - 2 and r[1] <= S[3] + 2 and r[3] >= S[1] - 2]
+            novo = [min([S[0]] + [r[0] for r in toca]), min([S[1]] + [r[1] for r in toca]),
+                    max([S[2]] + [r[2] for r in toca]), max([S[3]] + [r[3] for r in toca])]
+            if novo == S:
+                break
+            S = novo
+        # moldura achada se ela vai além do texto; senão a margem antiga
+        if S[0] < g[0] - 1 and S[2] > g[2] + 1:
+            out.append((S[0] - 4, S[1] - 4, S[2] + 4, S[3] + 4))
+        else:
+            out.append(L)
+    return out
 
 
 def vistas(pg, ppp=1.5, altura_min=250):
@@ -296,7 +325,7 @@ def vistas(pg, ppp=1.5, altura_min=250):
 
 def caixas_vistas(pg, tx, margem=70):
     faixas = vistas(pg)
-    tabs = regioes_tabela(tx)
+    tabs = regioes_tabela(tx, pg=pg)
     carimbo = [t["r"] for t in tx if t["t"].startswith("CUIDADOS DE EXECU")]
     excl = list(tabs) + [(c[0] - 5, c[1] - 12, 1e5, 1e5) for c in carimbo]
     out = []
@@ -910,6 +939,46 @@ def pav_de(z, niveis):
     return max(cands)[1] if cands else min((zz, n) for n, zz in niveis.items())[1]
 
 
+def _pontos_sem_etiqueta(conexoes, trechos, niveis, m_pt, avisos, minimo=3) -> list:
+    """Ponto de consumo (código 09/10) sem a etiqueta num andar: o andar tem menos pontos que os outros andares
+    da mesma vista, os outros têm a etiqueta no mesmo lugar (planta e altura do piso) e o tubo deste andar chega
+    até ali. A peça está desenhada e só faltou o número — conta como inferida (o aparelho existe em todo andar)."""
+    novos = []
+    grupos = defaultdict(list)
+    for cn in conexoes:
+        if cn["cod"] in ("09", "10") and cn["pav"] in niveis and cn["pav"].endswith("ºPavimento"):
+            grupos[(cn["origem"], cn["col"])].append(cn)
+    rel = lambda cn: cn["p"][2] - niveis[cn["pav"]]
+    for (orig, col), lst in grupos.items():
+        tr = [t for t in trechos if t["origem"] == orig and t["col"] == col]
+        pavs = sorted({t["pav"] for t in tr if t["pav"].endswith("ºPavimento")})
+        n = Counter(cn["pav"] for cn in lst)
+        moda = Counter(n.get(f, 0) for f in pavs).most_common(1)[0][0] if pavs else 0
+        for f in pavs:
+            falta = moda - n.get(f, 0)
+            if falta <= 0:
+                continue
+            ja = [cn for cn in lst if cn["pav"] == f]
+            igual = lambda a, b: math.dist(a["p"][:2], b["p"][:2]) * m_pt < 0.05 and abs(rel(a) - rel(b)) < 0.15
+            cands = []
+            for cn in lst:
+                if cn["pav"] == f or any(igual(cn, o) for o in ja) or any(igual(cn, c[0]) for c in cands):
+                    continue
+                apoio = {o["pav"] for o in lst if o["pav"] != f and igual(o, cn)}
+                z = niveis[f] + rel(cn)
+                chega = any(math.dist(P[:2], cn["p"][:2]) * m_pt < 0.05 and abs(P[2] - z) < 0.15 for t in tr if t["pav"] == f
+                            for P in (t["a"], t["b"]))
+                if len(apoio) >= minimo and chega:
+                    cands.append((cn, apoio, z))
+            for cn, apoio, z in sorted(cands, key=lambda c: -len(c[1]))[:falta]:
+                cod = Counter(o["cod"] for o in lst if o["pav"] != f and igual(o, cn)).most_common(1)[0][0]
+                novos.append({"col": col, "cod": cod, "pav": f, "p": [cn["p"][0], cn["p"][1], round(z, 3)], "origem": orig,
+                              "como": "inferido"})
+                avisos.append(f"{orig.split(' (')[0]} {f}: ponto de consumo {cod} sem etiqueta no desenho (a peça e o tubo "
+                              f"estão lá; {len(apoio)} outros andares têm a etiqueta no mesmo lugar) — contado")
+    return novos
+
+
 def ler_agua_fria(pdf, dados: dict, log=print) -> dict:
     import numpy as np
     doc = pymupdf.open(pdf)
@@ -1063,13 +1132,14 @@ def ler_agua_fria(pdf, dados: dict, log=print) -> dict:
                 cobertura.append({"col": c, "cod": cn["cod"], "pav": pav, "origem": r["titulo"]})
                 continue
             conexoes.append({"col": c, "cod": cn["cod"], "pav": pav, "p": ponto3(s, z), "origem": f"{r['titulo']} (pág. {r['pagina']})"})
+    conexoes += _pontos_sem_etiqueta(conexoes, trechos, niveis, m_tipo, avisos)
     saida = {"pdf": Path(pdf).name, "niveis": niveis, "isometricos": [
                 {k: r.get(k) for k in ("titulo", "pagina", "coluna", "k", "alfa", "f_h", "f_planta", "residuos_piso_m", "avisos")}
                 | {"pisos": [p[0] for p in r["pisos"]], "n_trechos": len(r["trechos"]), "repetidos": r["repetidos"],
                    "sem_rotulo": r["sem_rotulo"]} for r in isos],
             "plantas": plantas_out, "colunas": list(colunas.values()), "direcoes": direcoes,
             "trechos": trechos, "curtos": curtos, "conexoes": conexoes, "cobertura_nos_isometricos": cobertura,
-            "tabela_projetista": tabela, "avisos": avisos}
+            "tabela_projetista": tabela, "m_por_pt": m_tipo, "avisos": avisos}
     saida["auditoria"] = auditar(saida, dados)
     log("  barrilete, térreo, subsolo e colunas do prédio:")
     saida["complemento"] = complementar(doc, dados, saida, log=lambda t: log("  " + t))
@@ -1218,6 +1288,49 @@ def conferir(af: dict) -> list[tuple[str, str, str, bool]]:
         out.append((G, "Cozinha: tipos A, B e D (1º ao 5º)",
                     f"total de tubo {', '.join(f'{n[5]} {v:.2f} m' for n, v in sorted(somas.items()))}: diferença {amp:.2f} m "
                     f"(tubos curtos de 0,06 a 0,18 m sem rótulo em alguns andares do projeto; o C serve também o térreo)", amp < 0.5))
+    m = af.get("m_por_pt") or 0.017921
+    niv = af["niveis"]
+    col_xy = {c["id"]: c["xy"] for c in af["colunas"]}
+    no_eixo = lambda p, col: math.dist(p[:2], col_xy.get(col, (1e9, 1e9))) * m
+    # ramais (fora da coluna) iguais nos andares intermediários de cada vista: a coluna muda de diâmetro de andar a
+    # andar e fica fora; o ramal do apartamento é o mesmo
+    ram = defaultdict(lambda: defaultdict(Counter))
+    for t in af["trechos"]:
+        if no_eixo(t["a"], t["col"]) < 0.05 and no_eixo(t["b"], t["col"]) < 0.05:
+            continue
+        ram[t["origem"].split(" (")[0]][t["pav"]][(t["dn"], t["L"])] += 1
+    dif = [f"{v} {p[:2]}" for v, pp in ram.items() for p in ("2ºPavimento", "4ºPavimento") if pp.get(p) != pp.get("3ºPavimento")]
+    out.append((G, "Ramais iguais andar a andar (2º, 3º e 4º de cada isométrico)",
+                f"iguais nos {len(ram)} isométricos" if not dif else f"diferem: {', '.join(dif)}", not dif))
+    # pontos de consumo: mesmo número em todos os andares tipo de cada vista (com os inferidos)
+    pts = defaultdict(Counter)
+    for c in af["conexoes"]:
+        if c["cod"] in ("09", "10") and c["pav"].endswith("ºPavimento"):
+            pts[c["origem"].split(" (")[0]][c["pav"]] += 1
+    dif = [f"{v}: {dict(sorted(n.items()))}" for v, n in pts.items() if len(set(n.values())) > 1 or len(n) < 5]
+    inf = [c for c in af["conexoes"] if c.get("como") == "inferido"]
+    out.append((G, "Pontos de consumo (09/10) iguais em todos os andares tipo",
+                f"{sum(sum(n.values()) for n in pts.values())} pontos em {len(pts)} isométricos × 5 andares"
+                + (f"; {len(inf)} sem etiqueta no desenho, contado(s) pela peça desenhada: "
+                   + ", ".join(f"{c['origem'].split(' (')[0]} {c['pav'][:2]}" for c in inf) if inf else "")
+                if not dif else "diferem: " + "; ".join(dif), not dif))
+    # diâmetro da coluna: balão da planta do andar × trecho da coluna que sobe do tê do andar (piso + 2,5 m)
+    inc = []
+    for c in af["colunas"]:
+        if not c["id"].startswith("AF"):
+            continue
+        for pav, diam in c["diametros"].items():
+            if not (pav.endswith("ºPavimento") and diam):
+                continue
+            z = niv[pav] + 2.5
+            dns = {t["dn"] for t in af["trechos"] if t["col"] == c["id"] and t.get("eixo") == "v"
+                   and no_eixo(t["a"], t["col"]) < 0.05 and no_eixo(t["b"], t["col"]) < 0.05
+                   and min(t["a"][2], t["b"][2]) <= z <= max(t["a"][2], t["b"][2])}
+            d = int(str(diam).replace("ø", ""))
+            if dns and d not in dns:
+                inc.append(f"{c['id']} {pav[:2]}: balão ø{d}, isométrico DN{sorted(dns)}")
+    out.append((G, "Diâmetro das colunas: balão da planta × isométrico",
+                "iguais em todas as colunas e andares" if not inc else "; ".join(inc), not inc))
     desv = {c["id"]: max(c["desvio_mm"].values()) for c in af["colunas"] if c["desvio_mm"]}
     ruins = {k: v for k, v in desv.items() if v > 30}
     out.append((G, "Colunas no prumo (balões das plantas dos andares)",
@@ -1272,7 +1385,14 @@ def _colineares(s1, s2, tol=1.5):
 def _unicos_por_tubo(casa, segs, esc=None):
     """Um trecho por tubo: rótulo repetido no mesmo tubo desenhado conta uma vez. Com 'esc' (pt/m), dois
     rótulos iguais em pedaços colineares do mesmo tubo (o esqueleto quebra o tubo onde outra linha cruza)
-    também contam uma vez, se os pedaços juntos cabem no comprimento do rótulo."""
+    também contam uma vez, se os pedaços juntos cabem no comprimento do rótulo. E o segundo rótulo de um tubo
+    que caiu num tracinho de conexão (bem mais curto que o rótulo) encostado no tubo já rotulado igual também
+    é o mesmo tubo."""
+    def miudo(j, L):
+        return esc and math.dist(*segs[j]) < max(8.0, 0.15 * L * esc)
+
+    def encosta(a, b):                                  # ponta do tracinho 'a' até 6 pt do tubo 'b'
+        return min(dist_ps(P, segs[b]) for P in segs[a]) < 6.0
     vistos, out, rep = {}, [], 0
     for ro, j, como, d in casa:
         if j is None:
@@ -1282,6 +1402,9 @@ def _unicos_por_tubo(casa, segs, esc=None):
         dup = False
         for jj in vistos.get(chave, []):
             if jj == j:
+                dup = True
+            elif esc and ro["L"] and ((miudo(j, ro["L"]) and not miudo(jj, ro["L"]) and encosta(j, jj))
+                                      or (miudo(jj, ro["L"]) and not miudo(j, ro["L"]) and encosta(jj, j))):
                 dup = True
             elif esc and _colineares(segs[jj], segs[j]):
                 pts = [*segs[jj], *segs[j]]
@@ -1366,7 +1489,7 @@ def complementar(doc, dados, af, log=print):
         tits = [t["t"] for t in tx if t["size"] > 14 and (t["t"].startswith("Barrilete") or t["t"] in ("Salão de Festas", "Hidrômetro"))]
         if not tits:
             continue
-        tabs = regioes_tabela(tx)
+        tabs = regioes_tabela(tx, pg=pg)
         carimbo = [t["r"] for t in tx if t["t"].startswith("CUIDADOS DE EXECU")]
         excl = list(tabs) + [(c[0] - 5, c[1] - 12, 1e5, 1e5) for c in carimbo]
         for t in tx:
@@ -1465,7 +1588,7 @@ def caixas_por_titulo(pg, tx, prefixos=("Tipo ", "Coletores"), margem=70):
     separados). Cada faixa de tubo vai para o título mais perto na horizontal (abaixo dela)."""
     faixas = vistas(pg, altura_min=60)
     tits = [t for t in tx if t["size"] > 14 and t["t"].startswith(prefixos)]
-    tabs = regioes_tabela(tx)
+    tabs = regioes_tabela(tx, pg=pg)
     carimbo = [t["r"] for t in tx if t["t"].startswith("CUIDADOS DE EXECU")]
     excl = list(tabs) + [(c[0] - 5, c[1] - 12, 1e5, 1e5) for c in carimbo]
     if not tits:

@@ -120,6 +120,15 @@ Saídas em `--saida`:
     - Junta as pontas próximas e liga cada ponta solta ao tubo mais perto do mesmo sistema, com percurso ortogonal.
     - Ficam de fora os pontos de consumo, as subidas aos aparelhos e o topo das ventilações.
     - As ligações não entram no quantitativo nem no preço.
+21. **Auditoria das instalações** (verificações na aba "Conferência"):
+    - **Água fria:** ramais iguais andar a andar; pontos de consumo (09/10) iguais em todos os andares; diâmetro das colunas no balão da planta igual ao do isométrico.
+    - **Esgoto:**
+      - livro-razão dos rótulos (cada rótulo é um tubo ou a repetição de um tubo já contado);
+      - caixas sifonadas e ralos da planta contra a tabela;
+      - diâmetros dos tubos de queda no balão contra o isométrico;
+      - declividades contra a NBR 8160.
+    - **Peça desenhada em todos os andares e rotulada só em alguns:** conta com o rótulo do andar vizinho, marcada como "inferido". Na água fria, o mesmo vale para o ponto de consumo sem etiqueta.
+    - **A tabela da prancha** é a moldura desenhada, não o texto mais uma margem. A margem engolia códigos de conexão encostados nela.
 ## Limitações conhecidas
 
 - Depende de PDF vetorial com camadas no padrão do CAD (nomes AIA: `A-WALL`, `A-DOOR`…). PDF escaneado não funciona.

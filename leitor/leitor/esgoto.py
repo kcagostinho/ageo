@@ -17,13 +17,15 @@ correm em duas direções no piso) e não estão em escala horizontal. Por isso:
 from __future__ import annotations
 
 import math
+import re
+import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
 import pymupdf
 
-from .hidraulica import (NOMES_PLANTA, _ang, _linhas_eixo, _unicos_por_tubo, balões, caixas_por_titulo, dentro,
+from .hidraulica import (NOMES_PLANTA, _ang, _linhas_eixo, _unicos_por_tubo, balões, caixas_por_titulo, dentro, dist_ps,
                          ler_vista, limpo, linhas_finas, linhas_paredes_modelo, mascara_tubos, niveis_do_modelo,
                          plantas, pontos_marcados, registrar, render, rede_da_planta, segmentos, tabela_projetista,
                          textos, PPP)
@@ -69,31 +71,47 @@ def ramais_da_planta(pg, caixa, T, m_pt, minimo_m=0.06, dn_max=100):
     return out
 
 
-def caixas_da_planta(pg, caixa, T, m_pt, lado=(0.08, 0.21)):
+def caixas_da_planta(pg, caixa, T, m_pt, lado=(0.08, 0.21), lado_redonda=(0.13, 0.21)):
     """Caixas sifonadas e ralos da planta: o símbolo tem um quadrado ('qu') de ~10 cm ou um círculo de ~15 cm
-    (caixa redonda). Devolve centros (x, y na arquitetura) e o lado/diâmetro (m)."""
+    (caixa redonda, desenhada como dois meios-círculos). Círculos menores que 13 cm são os tubos de queda e
+    ventilações em planta, não caixa. Devolve centros (x, y na arquitetura), lado/diâmetro (m) e forma."""
     R = pg.rotation_matrix
     s, tx_, ty_ = T
     achados = []
+    metades = []                                          # caixa redonda: dois meios-círculos ('cc') por contorno
+
+    def junta(c, w, forma):
+        for a in achados:
+            if math.dist(a[0], c) < 2.5:
+                a[1] = max(a[1], w)
+                return
+        achados.append([c, w, forma])
     for d in pg.get_drawings():
         its = d["items"]
         quadrado = len(its) == 1 and its[0][0] == "qu"
-        redondo = len(its) >= 4 and all(it[0] == "c" for it in its)          # caixa sifonada redonda
-        if not (quadrado or redondo):
+        redondo = len(its) >= 4 and all(it[0] == "c" for it in its)          # círculo inteiro
+        meio = len(its) == 2 and all(it[0] == "c" for it in its)             # meio círculo
+        if not (quadrado or redondo or meio):
             continue
         r = d["rect"] * R
         if not (caixa[0] <= r.x0 <= caixa[2] and caixa[1] <= r.y0 <= caixa[3]):
             continue
         w, h = r.width * m_pt, r.height * m_pt
-        if lado[0] <= w <= lado[1] and abs(w - h) < 0.02:
-            c = ((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2)
-            for a in achados:
-                if math.dist(a[0], c) < 2.5:
-                    a[1] = max(a[1], w)
-                    break
-            else:
-                achados.append([c, w])
-    return [{"xy": [round(s * c[0] + tx_, 2), round(s * c[1] + ty_, 2)], "lado_m": round(w, 3)} for c, w in achados]
+        if meio:
+            if lado_redonda[0] <= max(w, h) <= lado_redonda[1] and abs(max(w, h) - 2 * min(w, h)) < 0.02:
+                metades.append((r.x0, r.y0, r.x1, r.y1))
+            continue
+        lim = lado if quadrado else lado_redonda
+        if lim[0] <= w <= lim[1] and abs(w - h) < 0.02:
+            junta(((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2), w, "quadrada" if quadrado else "redonda")
+    # meias que se completam num círculo (lado a lado, mesma altura ou mesma largura)
+    for i, a in enumerate(metades):
+        for b in metades[i + 1:]:
+            u = (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
+            w, h = (u[2] - u[0]) * m_pt, (u[3] - u[1]) * m_pt
+            if lado_redonda[0] <= w <= lado_redonda[1] and abs(w - h) < 0.02 and w > 1.6 * min(a[2] - a[0], a[3] - a[1]) * m_pt:
+                junta(((u[0] + u[2]) / 2, (u[1] + u[3]) / 2), w, "redonda")
+    return [{"xy": [round(s * c[0] + tx_, 2), round(s * c[1] + ty_, 2)], "lado_m": round(w, 3), "forma": f} for c, w, f in achados]
 
 
 def detalhar(ramais, caixas, colunas, m_pt, z_piso):
@@ -128,8 +146,91 @@ def detalhar(ramais, caixas, colunas, m_pt, z_piso):
                            "papel": "subida ao vaso (até o piso)" if dn >= 100 else "subida ao lavatório/pia/tanque (premissa 0,50 m)"})
             pecas.append({"tipo": "conexao", "xy": list(P), "z": round(z_r, 3), "dn": dn})
     for c in caixas:
-        pecas.append({"tipo": "caixa", "xy": c["xy"], "z": round(z_piso, 3), "lado": c["lado_m"]})
+        pecas.append({"tipo": "caixa", "xy": c["xy"], "z": round(z_piso, 3), "lado": c["lado_m"], "forma": c.get("forma")})
     return extras, pecas
+
+
+def inferir_sem_rotulo(uni, segs, casa, esc, tol=3.0, folga_passo=20) -> list[dict]:
+    """Tubo desenhado em todos os andares de um isométrico de apartamento, mas rotulado só em alguns (o projetista
+    deixou de rotular peças curtas em alguns andares): o mesmo traço, transladado na vertical do passo entre
+    andares e sem rótulo próprio, conta com o (DN, comprimento) do andar rotulado."""
+    com = [(ro, j) for ro, j, _ in uni if j is not None and ro["L"]]
+    # traço de modelo só se o desenho é coerente com o rótulo (rótulo casado com o tubo certo)
+    coerente = lambda ro, j: math.dist(*segs[j]) / esc <= ro["L"] * 1.6 + 0.10
+    c = Counter((ro["dn"], ro["L"]) for ro, _ in com)
+    n_and = max(c.values()) if c else 0
+    if n_and < 3:
+        return []
+    # passo entre andares: diferenças de altura entre rótulos iguais que se repetem em todos os andares
+    dif, ys_ref = [], []
+    for k, n in c.items():
+        if n == n_and:
+            ys = sorted(ro["c"][1] for ro, _ in com if (ro["dn"], ro["L"]) == k)
+            dif += [b - a for a, b in zip(ys, ys[1:])]
+            ys_ref += ys
+    if not dif:
+        return []
+    passo = statistics.median(dif)
+    if sum(abs(d - passo) < 6 for d in dif) < 0.7 * len(dif):
+        return []                                        # andares sem passo regular: não infere
+    y_min, y_max = min(ys_ref) - 0.6 * passo, max(ys_ref) + 0.6 * passo
+    rotulados = {j for _, j, _, _ in casa if j is not None}
+    usados, out = set(), []
+    for k, n in c.items():
+        if not (2 <= n < n_and):
+            continue
+        inst = [(ro, j) for ro, j in com if (ro["dn"], ro["L"]) == k]
+        boas = [t for t in inst if coerente(*t)]
+        if not boas:
+            continue
+        ys = [ro["c"][1] for ro, _ in inst]
+        novos = []
+        for m in range(-n_and, n_and + 1):
+            y_alvo = inst[0][0]["c"][1] + m * passo
+            if not (y_min <= y_alvo <= y_max) or any(abs(y - y_alvo) < passo / 2 for y in ys + [x[1] for x in novos]):
+                continue                                 # fora dos andares, ou o andar já tem o rótulo
+            ro0, j0 = min(boas, key=lambda t: abs(t[0]["c"][1] - y_alvo))   # o rótulo mais perto: menos erro no passo
+            dy0 = y_alvo - ro0["c"][1]
+            (ax, ay), (bx, by) = segs[j0]
+            achou = None
+            for i, sg in enumerate(segs):
+                if i in rotulados or i in usados:
+                    continue
+                for P, Q in ((sg[0], sg[1]), (sg[1], sg[0])):
+                    if abs(P[0] - ax) < tol and abs(Q[0] - bx) < tol and abs((P[1] - ay) - (Q[1] - by)) < 2 \
+                            and abs((P[1] - ay) - dy0) < folga_passo:
+                        achou = i
+                        break
+                if achou is not None:
+                    break
+            if achou is not None:
+                novos.append((achou, y_alvo))
+        for i, y in novos[: n_and - n]:
+            usados.add(i)
+            out.append({"dn": k[0], "L": k[1], "seg": i, "y": y})
+    return out
+
+
+# NBR 8160 (4.2.3.2): declividade mínima recomendada dos ramais e subcoletores
+DECLIV_MIN = lambda dn: 2.0 if dn <= 75 else 1.0
+
+
+def declividades(v, tx_vista) -> list[dict]:
+    """Rótulos 'i=x,x%' do isométrico com o DN do tubo rotulado mais perto (até 25 pt)."""
+    dn_seg = {j: ro["dn"] for ro, j, _, _ in v["rotulos"] if j is not None}
+    out = []
+    for t in tx_vista:
+        mt = re.fullmatch(r"i\s*=\s*(\d+,\d+)%", t["t"].strip())
+        if not mt:
+            continue
+        i = float(mt.group(1).replace(",", "."))
+        dn = None
+        for d, j in sorted((dist_ps(t["c"], sg), j) for j, sg in enumerate(v["segs"]))[:6]:
+            if j in dn_seg and d < 25:
+                dn = dn_seg[j]
+                break
+        out.append({"i": i, "dn": dn, "xy": [round(t["c"][0], 1), round(t["c"][1], 1)]})
+    return out
 
 
 def caixas_e_ralos(tx) -> list[dict]:
@@ -176,12 +277,19 @@ def ler_esgoto(pdf, dados: dict, log=print) -> dict:
             v = ler_vista(pg, cx, tx, excl)
             esc = (v["esc"] or 100) * 1.25
             uni, rep = _unicos_por_tubo(v["rotulos"], v["segs"], esc=esc)
+            # y do tubo (meio do traço) para o corte entre apartamento e coletores: o rótulo de um tubo vertical pode
+            # ficar em qualquer ponto dele, até acima do corte
             itens = [{"dn": ro["dn"], "L": ro["L"], "como": como, "y": ro["c"][1],
+                      "y_tubo": (v["segs"][j][0][1] + v["segs"][j][1][1]) / 2 if j is not None else ro["c"][1],
                       "vertical": j is not None and abs(abs(_ang(v["segs"][j])) - 90) < 3} for ro, j, como in uni if ro["L"]]
+            inf = [] if nome.startswith("Coletores") else inferir_sem_rotulo(uni, v["segs"], v["rotulos"], v["esc"] or 100)
+            itens += [{"dn": x["dn"], "L": x["L"], "como": "inferido", "y": x["y"], "y_tubo": x["y"],
+                       "vertical": abs(abs(_ang(v["segs"][x["seg"]])) - 90) < 3} for x in inf]
             t2 = [t for t in tx if dentro(t["c"], cx)]
             cols = sorted({t["t"].replace(" ", "") for t in t2 if t["t"].replace(" ", "").startswith(("TQ-", "V-"))})
             sem = sum(1 for x in v["rotulos"] if x[1] is None)
             vistas.append({"titulo": nome, "pagina": pg.number + 1, "itens": itens, "repetidos": rep, "sem_tubo": sem,
+                           "inferidos": [(x["dn"], x["L"]) for x in inf], "declividades": declividades(v, t2),
                            "rotulos": len(v["rotulos"]), "codigos": dict(Counter(t["t"] for t in v["codigos"])), "colunas": cols})
             tot = Counter()
             for x in itens:
@@ -212,6 +320,9 @@ def ler_esgoto(pdf, dados: dict, log=print) -> dict:
                 caixas_pav[p["pavimento"]] = caixas_da_planta(pg, cx, T, m_pt)
             elif p["pavimento"] in ("Pavimento Térreo", "Sub-Solo"):
                 redes[p["pavimento"]] = {**rede_da_planta(pg, cx, T, m_pt), "vista": va["id"]}
+                if p["pavimento"] == "Pavimento Térreo":
+                    # só as caixas sifonadas quadradas (salão de festas): os círculos grandes do térreo são outra coisa
+                    caixas_pav[p["pavimento"]] = [c for c in caixas_da_planta(pg, cx, T, m_pt) if c["forma"] == "quadrada"]
             plantas_out.append({"pavimento": p["pavimento"], "pagina": pg.number + 1, "vista_arq": va["id"], "escala": round(s, 5),
                                 "desloc": [round(txx, 2), round(tyy, 2)], "rms_mm": round(info["rms_pt"] * va["m_por_pt"] * 1000, 1) if info["rms_pt"] else None,
                                 "baloes": len(bal)})
@@ -264,12 +375,18 @@ def ler_esgoto(pdf, dados: dict, log=print) -> dict:
             k = (x["dn"], x["L"])
             # vai para o grupo dos coletores: abaixo do corte, ou tubo próprio deste tipo (não está no mesmo cômodo dos
             # outros tipos) que a planta do térreo/subsolo ou a vista de coletores também mostra
-            if c[k] < 4 and (x["y"] > y_corte or (k in no_coletor and k not in irmaos)):
+            if c[k] < 4 and (max(x["y"], x.get("y_tubo", x["y"])) > y_corte or (k in no_coletor and k not in irmaos)):
                 (baixo_v if x["vertical"] else baixo_h)[k] += 1
             else:
                 apartamentos.append({"vista": v["titulo"], "dn": x["dn"], "L": x["L"], "vertical": x["vertical"], "como": x["como"]})
     plan_h = Counter((x["dn"], x["L"]) for r in redes.values() for x in r["horizontais"])
-    plan_v = Counter((x["dn"], x["L"]) for r in redes.values() for x in r["verticais"])
+    # vertical mais longo que um pé-direito (> 3,1 m) atravessa o térreo e o subsolo e é rotulado nas duas
+    # plantas: é o mesmo tubo, conta pela planta que mais o mostra (não a soma)
+    por_planta = [Counter((x["dn"], x["L"]) for x in r["verticais"]) for r in redes.values()]
+    plan_v = Counter()
+    for k in set().union(*por_planta) if por_planta else ():
+        ns = [c.get(k, 0) for c in por_planta]
+        plan_v[k] = max(ns) if k[1] > 3.1 else sum(ns)
     col_h, col_v = Counter(), Counter()
     for v in col_views:
         for x in v["itens"]:
@@ -293,7 +410,7 @@ def ler_esgoto(pdf, dados: dict, log=print) -> dict:
         c = Counter((x["dn"], x["L"]) for x in v["itens"])
         for x in v["itens"]:
             k = (x["dn"], x["L"])
-            if c[k] < 4 and x["y"] <= v["y_corte"] and not (k in no_coletor and k not in v["irmaos"]):
+            if c[k] < 4 and max(x["y"], x.get("y_tubo", x["y"])) <= v["y_corte"] and not (k in no_coletor and k not in v["irmaos"]):
                 nao_rep[k] += 1
     for k in list(plan_v):
         plan_v[k] = max(plan_v[k] - nao_rep.get(k, 0), 0)
@@ -327,7 +444,7 @@ def ler_esgoto(pdf, dados: dict, log=print) -> dict:
     for (g, dn), val in sorted(q.items()):
         log(f"  {g}: DN{dn} {val:.2f} m")
     saida = {"pdf": Path(pdf).name, "niveis": niveis,
-             "isometricos": [{k: v[k] for k in ("titulo", "pagina", "repetidos", "sem_tubo", "rotulos", "colunas", "codigos")} |
+             "isometricos": [{k: v[k] for k in ("titulo", "pagina", "repetidos", "sem_tubo", "rotulos", "colunas", "codigos", "inferidos", "declividades")} |
                              {"n_tubos": len(v["itens"])} for v in vistas],
              "plantas": plantas_out, "colunas": colunas, "apartamentos": apartamentos, "coletores": coletores,
              "ramais": ramais, "extras_3d": extras_3d, "pecas_3d": pecas_3d, "conexoes": dict(conexoes), "conexoes_aptos": dict(cod_apt),
@@ -381,6 +498,34 @@ def conferir(es: dict) -> list[tuple[str, str, str, bool]]:
     sem = sum(i["sem_tubo"] for i in isos)
     out.append((G, "Rótulos DN/comprimento ligados a um tubo", f"{n - sem} de {n} rótulos em {len(isos)} isométricos", sem <= 0.01 * n))
     out.append((G, "Rótulo repetido no mesmo tubo (contado uma vez)", f"{sum(i['repetidos'] for i in isos)} rótulos", True))
+    # livro-razão: cada rótulo é um tubo ou a repetição de um tubo já contado; + peças sem rótulo em algum andar
+    inf = [(i["titulo"], x) for i in isos for x in i.get("inferidos", [])]
+    fecha = all(i["n_tubos"] - len(i.get("inferidos", [])) + i["repetidos"] == i["rotulos"] for i in isos)
+    out.append((G, "Livro-razão dos rótulos (rótulo = tubo contado ou repetição do mesmo tubo)",
+                f"{n} rótulos = {sum(i['n_tubos'] for i in isos) - len(inf)} tubos + {sum(i['repetidos'] for i in isos)} repetidos"
+                + (f"; + {len(inf)} peça(s) desenhada(s) em todos os andares e rotulada(s) só em alguns, contada(s) pelo rótulo "
+                   "do andar vizinho (" + ", ".join(f"{t} {q}×" for t, q in sorted(Counter(t for t, _ in inf).items())) + ")" if inf else ""),
+                fecha))
+    # declividades × NBR 8160 (DN até 75: 2%; DN 100 ou mais: 1%) — ponto de projeto, não de leitura
+    dec = [(i["titulo"], d) for i in isos for d in i.get("declividades", []) if d["dn"]]
+    baixas = Counter((d["dn"], d["i"]) for _, d in dec if d["i"] < DECLIV_MIN(d["dn"]))
+    if dec:
+        out.append((G, "Declividades × NBR 8160 (mínimo recomendado: 2% até DN75, 1% a partir do DN100)",
+                    f"{len(dec)} rótulos 'i=' com DN identificado; " +
+                    ("todos no mínimo ou acima" if not baixas else
+                     f"{sum(baixas.values())} abaixo do mínimo: " + ", ".join(f"DN{dn} i={i:.1f}% ({q}×)".replace(".", ",")
+                                                                             for (dn, i), q in sorted(baixas.items()))
+                     + " — ponto para o projetista (o desenho está assim; não é erro de leitura)"),
+                    not baixas))
+    # caixas sifonadas e ralos: símbolos nas plantas × tabela do projetista
+    cx = Counter(p.get("forma") or "quadrada" for p in es.get("pecas_3d", []) if p["tipo"] == "caixa")
+    tcx = (es.get("tabela_projetista") or {}).get("caixas") or []
+    t_quad = sum(x["qtd"] for x in tcx if re.search(r"Quadrad|Ralo", x["descricao"]) and re.search(r"Sifonada|Ralo", x["descricao"]))
+    t_red = sum(x["qtd"] for x in tcx if "Redond" in x["descricao"] and "Sifonada" in x["descricao"])
+    if tcx:
+        out.append((G, "Caixas sifonadas e ralos: plantas × tabela do projetista",
+                    f"quadradas (caixa sifonada 100 e ralo) {cx.get('quadrada', 0)} × {int(t_quad)}; redondas (caixa sifonada 150) "
+                    f"{cx.get('redonda', 0)} × {int(t_red)}", cx.get("quadrada", 0) == t_quad and cx.get("redonda", 0) == t_red))
     por = defaultdict(Counter)
     for t in es["apartamentos"]:
         por[t["vista"]][t["dn"]] += t["L"]
@@ -394,6 +539,18 @@ def conferir(es: dict) -> list[tuple[str, str, str, bool]]:
         out.append((G, f"{comodo.capitalize()}: tipos A a D (acima do coletor)",
                     ", ".join(f"{k.split(' - ')[0][5:]} {v:.2f} m" for k, v in sorted(tot.items())) + f": diferença {amp:.2f} m",
                     amp <= 0.12 * media))
+    # diâmetros dos tubos de queda e ventilações: balões das plantas × trechos entre andares do isométrico
+    dcol = {c["id"]: int(str(c["diametro"]).replace("ø", "")) for c in es["colunas"] if c.get("diametro")}
+    inc = []
+    for i in isos:
+        if i["titulo"].startswith("Coletores"):
+            continue
+        b_ = {dcol[c] for c in i["colunas"] if c in dcol}
+        iso = {t["dn"] for t in es["apartamentos"] if t["vista"] == i["titulo"] and t["vertical"] and t["L"] >= 2.4}
+        if b_ and iso and b_ != iso:
+            inc.append(f"{i['titulo']}: balões {sorted(b_)}, isométrico {sorted(iso)}")
+    out.append((G, "Diâmetros dos tubos de queda e ventilações: balão da planta × isométrico",
+                "iguais nos 12 isométricos dos apartamentos" if not inc else "; ".join(inc), not inc))
     desv = {c["id"]: max(c["desvio_mm"].values()) for c in es["colunas"] if c["desvio_mm"]}
     ruins = {k: v for k, v in desv.items() if v > 30}
     out.append((G, "Tubos de queda e ventilações no prumo",

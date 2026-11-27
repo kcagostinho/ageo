@@ -172,7 +172,8 @@ def montar(dados: dict) -> dict:
                     [*cve(*e["a"]), round(e["za"], 3), *cve(*e["b"]), round(e["zb"], 3), e["dn"], len(lista) - 1, 1])
             for q in es_h.get("pecas_3d", []):
                 hid_por_pav.setdefault(q["pav"], {"t": [], "c": []}).setdefault("p", []).append(
-                    [*cve(*q["xy"]), round(q["z"], 3), 1 if q["tipo"] == "caixa" else 0, q.get("lado") or 0, q.get("dn") or 0])
+                    [*cve(*q["xy"]), round(q["z"], 3), (2 if q.get("forma") == "redonda" else 1) if q["tipo"] == "caixa" else 0,
+                     q.get("lado") or 0, q.get("dn") or 0])
             ordem = sorted(niv.items(), key=lambda kv: kv[1])
             for c in es_h["colunas"]:
                 dn = int(str(c.get("diametro") or "ø100").replace("ø", "") or 100)
@@ -749,13 +750,18 @@ D.andares.forEach((A,ia)=>{
     arr.forEach((c,i)=>{M.compose(new THREE.Vector3(c[0],c[1]+0.034,c[2]),new THREE.Quaternion(),new THREE.Vector3(0.028,0.012,0.028));vol.setMatrixAt(i,M)});
     vol.instanceMatrix.needsUpdate=true;vol.computeBoundingSphere();vol.userData={sys:0};vol.visible=false;g.add(vol);hidM.push(vol)}});
   // esgoto: conexões (junções/joelhos) e caixas sifonadas/ralos no piso
-  const pE=A.hid.p||[];const nos=pE.filter(q=>q[3]===0),cxs=pE.filter(q=>q[3]===1);
+  const pE=A.hid.p||[];const nos=pE.filter(q=>q[3]===0),cxs=pE.filter(q=>q[3]===1),cxr=pE.filter(q=>q[3]===2);
   if(nos.length){const me=new THREE.InstancedMesh(sph,mat({color:0x5A3A22}),nos.length);
    nos.forEach((q,i)=>{const r=Math.max((OD_ES[q[5]]||0.05)*0.75,0.03);M.compose(new THREE.Vector3(q[0],q[1],q[2]),new THREE.Quaternion(),new THREE.Vector3(r,r,r));me.setMatrixAt(i,M)});
    me.instanceMatrix.needsUpdate=true;me.computeBoundingSphere();me.userData={sys:1};me.visible=false;g.add(me);hidM.push(me)}
   if(cxs.length){const cx=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),mat({color:0xE8E6E1}),cxs.length),gr=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),mat({color:0x9A9A9A}),cxs.length);
    cxs.forEach((q,i)=>{const L=Math.max(q[4],0.1);M.compose(new THREE.Vector3(q[0],q[1]-0.09,q[2]),new THREE.Quaternion(),new THREE.Vector3(L*1.4,0.18,L*1.4));cx.setMatrixAt(i,M);
     M.compose(new THREE.Vector3(q[0],q[1]+0.004,q[2]),new THREE.Quaternion(),new THREE.Vector3(L,0.006,L));gr.setMatrixAt(i,M)});
+   [cx,gr].forEach(m=>{m.instanceMatrix.needsUpdate=true;m.computeBoundingSphere();m.userData={sys:1};m.visible=false;g.add(m);hidM.push(m)})}
+  // caixa sifonada redonda (150 mm): corpo cilíndrico e grelha redonda
+  if(cxr.length){const cil=new THREE.CylinderGeometry(0.5,0.5,1,24),cx=new THREE.InstancedMesh(cil,mat({color:0xE8E6E1}),cxr.length),gr=new THREE.InstancedMesh(cil,mat({color:0x9A9A9A}),cxr.length);
+   cxr.forEach((q,i)=>{const L=Math.max(q[4],0.13);M.compose(new THREE.Vector3(q[0],q[1]-0.1,q[2]),new THREE.Quaternion(),new THREE.Vector3(L*1.15,0.2,L*1.15));cx.setMatrixAt(i,M);
+    M.compose(new THREE.Vector3(q[0],q[1]+0.004,q[2]),new THREE.Quaternion(),new THREE.Vector3(L*0.95,0.006,L*0.95));gr.setMatrixAt(i,M)});
    [cx,gr].forEach(m=>{m.instanceMatrix.needsUpdate=true;m.computeBoundingSphere();m.userData={sys:1};m.visible=false;g.add(m);hidM.push(m)})}
  }
  // cobertura: telhados (fibrocimento i=10%), calhas, laje e reservatórios da caixa d'água
