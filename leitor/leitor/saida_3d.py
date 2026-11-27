@@ -67,6 +67,14 @@ def montar(dados: dict) -> dict:
     vao_por_id = {x["id"]: x for x in dados.get("vaos", [])}
     from .cobertura import ALTURAS
     pag39 = dados.get("paginacao", {}).get(dados["premissas"].get("familia", "39"), {}).get("por_pavimento", {})
+    orc = dados.get("orcamento")
+    rat = {k: {int(i): x for i, x in v.items()} for k, v in (orc or {}).get("rateio", {}).items()}
+
+    def custo(chave):
+        d = rat.get(chave)
+        if not d:
+            return {}
+        return {"c": _r(sum(d.values()), 2), "cx": [[i, _r(x, 2)] for i, x in sorted(d.items(), key=lambda kv: -kv[1]) if x >= 0.005]}
 
     andares = []
     for ordem, v in enumerate(vistas):
@@ -93,6 +101,7 @@ def montar(dados: dict) -> dict:
                 "teto": q.get("teto_m2"), "rodape": q.get("rodape_m"), "parede": q.get("parede_liquida_m2"),
                 "portas": q.get("n_portas"), "janelas": q.get("n_janelas"), "acab": _acabamento(a["nome"], tipo),
                 "obs": q.get("observacao") or a.get("observacao") or "",
+                **custo(f"amb|{i}"),
             })
 
         par_out, caixas = [], []
@@ -124,7 +133,7 @@ def montar(dados: dict) -> dict:
                 vaos.append([x["tipo"], _r(x["inicio_m"]), _r(w), _r(base, 2), _r(topo, 2), kind])
             par_out.append({"id": p["id"], "tipo": p["tipo"], "fachada": p["fachada"], "a": a_, "b": b_,
                             "t": p["espessura_m"], "comp": p["comprimento_m"], "enc": [p["encontros"]["a"], p["encontros"]["b"]],
-                            "la": p["lado_a"], "lb": p["lado_b"], "motivo": p["motivo"], "vaos": vaos})
+                            "la": p["lado_a"], "lb": p["lado_b"], "motivo": p["motivo"], "vaos": vaos, **custo(f"par|{p['id']}")})
             if p["tipo"] != "muro":
                 caixas.append(LineString([a_, b_]).buffer(p["espessura_m"] / 2, cap_style="square"))
 
@@ -185,6 +194,9 @@ def montar(dados: dict) -> dict:
         if blocos_est:
             resumo.append(["Blocos estruturais (fam. 39)", f"{blocos_est:,.0f} peças"])
             resumo.append(["Blocos de vedação (9 cm)", f"{blocos_ved:,.0f} peças"])
+        c_andar = sum(x.get("c", 0) for x in par_out) + sum(x.get("c", 0) for x in amb_out)
+        if c_andar:
+            resumo.append(["Custo B4 (alvenaria + revestimentos)", f"R$ {c_andar:,.2f}"])
         # paginação bloco a bloco (só andares com paredes estruturais/vedação definidas)
         pag = None
         linhas = [x for x in det_todas if x["vista"] == v["id"]]
@@ -232,6 +244,14 @@ def montar(dados: dict) -> dict:
                               "comp": _r(math.hypot(b_[0] - a_[0], b_[1] - a_[1])), "enc": ["—", "—"], "la": ["—"], "lb": ["—"], "vaos": [],
                               "h": ALTURAS["platibanda_m"] if plat else ALTURAS["parapeito_m"],
                               "motivo": f"platibanda da caixa d'água (h={ALTURAS['platibanda_m']:.2f} m)" if plat else f"parapeito (h={ALTURAS['parapeito_m']:.2f} m)"})
+            d_pl = rat.get("cob|platibanda")
+            par_pl = [x for x in par_c if x["h"] == ALTURAS["parapeito_m"]]
+            L_pl = sum(x["comp"] for x in par_pl)
+            if d_pl and L_pl:
+                for x in par_pl:
+                    f = x["comp"] / L_pl
+                    x["cx"] = [[i, _r(v * f, 2)] for i, v in sorted(d_pl.items(), key=lambda kv: -kv[1])]
+                    x["c"] = _r(sum(v for _, v in x["cx"]), 2)
             telh = []
             for t in cb["telhados"]:
                 caixa_d = t is menor
@@ -253,6 +273,8 @@ def montar(dados: dict) -> dict:
                         ["Platibanda da caixa d'água (h = 4,00 m)", f"{sum(x['comp'] for x in par_c if x['h'] == ALTURAS['platibanda_m']):,.2f} m"],
                         ["Reservatórios", f"{len(res)} × 5,000 L"],  # a troca abaixo vira 5.000
                         ["Alturas", "cortes da prancha 5; reservatórios e telhado da caixa d'água simplificados"]]
+            if d_pl:
+                resumo_c.append(["Custo B4 (pintura da platibanda)", f"R$ {sum(d_pl.values()):,.2f}"])
             andares.append({"id": "cobertura", "nome": "Cobertura", "ordem": len(andares), "z": zc, "pd": ALTURAS["platibanda_m"], "pag": None,
                             "ambientes": [], "paredes": par_c, "laje": laje_c,
                             "cob": {"telhados": telh, "reservatorios": res, "laje_res": laje_res, "z_laje_res": ALTURAS["laje_reservatorio_m"],
@@ -266,7 +288,19 @@ def montar(dados: dict) -> dict:
             if any(k in insumo for k in ("Bloco 14", "Bloco 9", "Argamassa", "Graute", "Aço", "Gesso liso", "Pintura projetada direto")):
                 q = base * coef * (1 + perda)
                 obra.append([insumo, (f"{q:,.0f}" if un == "un" else f"{q:,.1f}").replace(",", "X").replace(".", ",").replace("X", ".") + f" {un}"])
-    return {"obra": dados["obra"], "doc": dados["documento"], "gerado": dados["gerado_em"], "andares": andares, "resumoObra": obra}
+    orc3d = None
+    if orc:
+        gr = {}
+        for L in orc["linhas"]:
+            gr[L["grupo"]] = gr.get(L["grupo"], 0) + L["custo"]
+        cub = orc.get("cub")
+        orc3d = {"mes": orc["mes"], "uf": orc["uf"], "deson": orc["premissas"]["desonerado"], "total": _r(orc["total"], 2),
+                 "linhas": [[L["grupo"], L["item"], L["un"], _r(L["qtd"], 2), _r(L["preco"], 2), _r(L["custo"], 2)] for L in orc["linhas"]],
+                 "grupos": [[g, _r(v, 2)] for g, v in gr.items()], "area": _r(orc["area_orc"], 2),
+                 "areas": {k: _r(v, 2) for k, v in orc["areas"].items()},
+                 "cub": cub and {"padrao": cub["padrao"], "mes": cub["mes"], "valor": cub["valor"], "ref": _r(cub["custo_ref"], 2)}}
+    return {"obra": dados["obra"], "doc": dados["documento"], "gerado": dados["gerado_em"], "andares": andares, "resumoObra": obra,
+            "orc": orc3d}
 
 
 def gerar(dados: dict, destino: Path):
@@ -308,6 +342,10 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td{p
  .painel.min{max-height:52px;overflow:hidden}
  .handle{display:block;width:100%;border:0;background:none;padding:8px 0 2px;cursor:pointer}.handle span{display:block;margin:0 auto;width:40px;height:5px;border-radius:3px;background:var(--dim)}
 }
+.grad{height:10px;border-radius:5px;margin:4px 0 2px;background:linear-gradient(90deg,#F5EBCC,#EDB240,#CC402B,#5C1412)}
+.esc{display:flex;justify-content:space-between;color:var(--mut);font-size:12px;font-variant-numeric:tabular-nums}
+.bar{height:6px;border-radius:3px;background:var(--acc);opacity:.75;margin-top:3px}
+select{font:inherit;color:var(--tx);background:var(--chip);border:1px solid var(--bd);border-radius:8px;padding:3px 6px}
 .tip{position:fixed;pointer-events:none;background:#1A1A1A;color:#fff;font-size:12px;padding:5px 8px;border-radius:6px;display:none;z-index:3}
 </style></head><body>
 <canvas id="c"></canvas>
@@ -337,7 +375,13 @@ const D=__DADOS__;
 const COR_PAREDE={"estrutural":0xC0392B,"vedação":0x2E86C1,"a definir":0xE8A317,"concreto":0x7B7B7B,"muro":0x9A6B2F,"parapeito":0xB9B4A8};
 const COR_AMB={"seca":0xE9E1CF,"molhada":0x9FD3E6,"externa":0xB9E0A5,"circulação":0xD9D2E9,"garagem":0xCFCFCF,"técnico":0x8C8C8C};
 const NOME_AMB={"seca":"seco (salas, quartos)","molhada":"molhado","externa":"varanda","circulação":"circulação","garagem":"garagem","técnico":"técnico"};
-const SEL=0xFFD400;
+const SEL=0xFFD400,SELRGB=(()=>{const c=new THREE.Color(SEL);return [c.r,c.g,c.b]})();
+const brl=v=>"R$ "+nf(v,2);
+// rampa sequencial do mapa de calor (claro = barato, escuro = caro) e cinza para "sem custo"
+const RAMPA=[[0,[0.96,0.92,0.80]],[0.35,[0.93,0.70,0.25]],[0.7,[0.80,0.25,0.17]],[1,[0.36,0.08,0.07]]],SEMCUSTO=[0.84,0.83,0.80];
+function rampa(t){t=Math.max(0,Math.min(1,t));for(let i=1;i<RAMPA.length;i++){const [a,ca]=RAMPA[i-1],[b,cb]=RAMPA[i];if(t<=b){const u=(t-a)/(b-a);return ca.map((x,k)=>x+(cb[k]-x)*u)}}return RAMPA[RAMPA.length-1][1]}
+// custo de cada andar (paredes + ambientes), usado no mapa "por andar"
+D.andares.forEach(A=>{A.custo=A.paredes.reduce((s,p)=>s+(p.c||0),0)+A.ambientes.reduce((s,a)=>s+(a.c||0),0)});
 const COR_PECA={0:0xD9D6CC,1:0xB4AE9E,2:0x8E7CC3,3:0xE08A1E,4:0xF2B24C,5:0x262626};
 const COR_PECA_VED={0:0xB9CFE4,1:0x8EAFCF,3:0xE08A1E,4:0xF2B24C,5:0x262626};
 const NOME_PECA=[["inteiro 14×19×39",0xD9D6CC],["meio 14×19×19",0xB4AE9E],["amarração 34/54",0x8E7CC3],["canaleta J (cinta fachada)",0xE08A1E],
@@ -472,13 +516,13 @@ D.andares.forEach((A,ia)=>{
 });
 
 // ---------- estado e interface
-const S={andar:-1,modo:"paredes",filt:{"estrutural":true,"vedação":true,"a definir":true,"concreto":true,"muro":false,"ext":true,"int":true,"laje":true,"cintas":false,"graute":true,"esq":true},explode:0,corte:false,alt:1.2,cortev:false,eixov:"x",posv:0.5,sel:null};
+const S={andar:-1,modo:"paredes",filt:{"estrutural":true,"vedação":true,"a definir":true,"concreto":true,"muro":false,"ext":true,"int":true,"laje":true,"cintas":false,"graute":true,"esq":true},explode:0,corte:false,alt:1.2,cortev:false,eixov:"x",posv:0.5,sel:null,metrica:"parede"};
 const el=id=>document.getElementById(id);
 function chips(id,itens,ativo,cb,cls=""){const r=el(id);r.innerHTML="";itens.forEach(([v,t,cor])=>{const b=document.createElement("button");b.className="chip "+cls;
  b.innerHTML=(cor!=null?`<i style="background:#${cor.toString(16).padStart(6,"0")}"></i>`:"")+esc(t);b.setAttribute("aria-pressed",ativo(v));b.onclick=()=>{cb(v);atualizar()};r.appendChild(b)})}
 function ui(){
  chips("andares",[[-1,"Todos"],...D.andares.map((A,i)=>[i,A.nome.replace("Pavimento ","").replace("ºPavimento","º pav.")])],v=>v===S.andar,v=>{S.andar=v;S.sel=null;enquadrar(false)});
- chips("modos",[["paredes","Paredes"],["paginacao","Paginação (blocos)"],["ambientes","Ambientes"]],v=>v===S.modo,v=>{S.modo=v;if(S.sel)limparSel()});
+ chips("modos",[["paredes","Paredes"],["paginacao","Paginação (blocos)"],["ambientes","Ambientes"],...(D.orc?[["custo","Custo (B4)"]]:[])],v=>v===S.modo,v=>{S.modo=v;if(S.sel)limparSel()});
  const fs=[["estrutural","Estrutural",COR_PAREDE["estrutural"]],["vedação","Vedação",COR_PAREDE["vedação"]],["a definir","A definir",COR_PAREDE["a definir"]],
   ["concreto","Pilares/concreto",COR_PAREDE["concreto"]],["muro","Muros",COR_PAREDE["muro"]],["ext","Externas"],["int","Internas"],["laje","Lajes"],["esq","Esquadrias",0x9CC8E8]];
  if(S.modo==="paginacao")fs.splice(5,0,["cintas","Destacar cintas, vergas e contravergas",0xF2B24C],["graute","Pontos de graute",0x1F4E8C]);
@@ -509,8 +553,20 @@ function atualizar(){
   if(S.eixov==="x"){planoV.normal.set(-1,0,0);planoV.constant=B.min.x+S.posv*(B.max.x-B.min.x)}
   else{planoV.normal.set(0,0,-1);planoV.constant=B.min.z+S.posv*(B.max.z-B.min.z)}}
  else planoV.constant=1e6;
- rotulos();resumo();legenda();
+ pintar();rotulos();resumo();legenda();
 }
+function valorParede(A,p){if(!p.c)return null;if(S.metrica==="m2"){const ar=p.comp*(p.h||A.pd);return ar>0?p.c/ar:null}
+ if(S.metrica==="andar")return A.custo||null;return p.c}
+let ESCALA=[0,1];
+function escala(){const vs=[];andares.forEach((F,i)=>{if(S.andar>=0&&i!==S.andar)return;F.A.paredes.forEach(p=>{const v=valorParede(F.A,p);if(v>0)vs.push(v)})});
+ if(!vs.length)return [0,1];vs.sort((a,b)=>a-b);if(S.metrica==="andar")return [Math.min(...vs)*0.9,Math.max(...vs)];
+ const q=f=>vs[Math.min(vs.length-1,Math.floor(f*(vs.length-1)))];return [q(0.02),q(0.98)]}
+function corDe(u,ip){if(S.modo!=="custo")return u.base;const v=valorParede(u.A,u.A.paredes[ip]);if(!(v>0))return SEMCUSTO;
+ const [a,b]=ESCALA;return rampa(b>a?(v-a)/(b-a):1)}
+function pintar(){const key=S.modo+"|"+S.metrica+"|"+S.andar;if(key===S._pint)return;S._pint=key;if(S.modo==="custo")ESCALA=escala();
+ andares.forEach(F=>F.paredes.forEach(me=>{const u=me.userData,c=me.geometry.attributes.color;
+  Object.entries(u.faixas).forEach(([ip,[ini,n]])=>{const col=(S.sel&&S.sel.tipo==="par"&&S.sel.obj===me&&S.sel.ip===+ip)?SELRGB:corDe(u,+ip);
+   for(let k=ini;k<ini+n;k++)c.setXYZ(k,col[0],col[1],col[2])});c.needsUpdate=true}))}
 function rotulos(){
  andares.forEach(F=>{if(F.rotulos){F.g.remove(F.rotulos);F.rotulos=null}});
  if(S.andar<0)return;const F=andares[S.andar];const gr=new THREE.Group();
@@ -523,11 +579,35 @@ function rotulos(){
   const h=0.32;sp.scale.set(h*w/cv.height,h,1);sp.position.set(a.rot[0],F.A.pd*0.55,a.rot[1]);sp.renderOrder=10;gr.add(sp)});
  F.g.add(gr);F.rotulos=gr;
 }
+function resumoCusto(){
+ const O=D.orc,ref=`SINAPI ${esc(O.mes)} ${esc(O.uf)}, ${O.deson?"com":"sem"} desoneração`;
+ const lin=(k,v,b)=>`<tr><td class="k">${esc(k)}</td><td>${v}${b!=null?`<div class="bar" style="width:${Math.max(2,b*100).toFixed(1)}%"></div>`:""}</td></tr>`;
+ if(S.andar>=0){const A=D.andares[S.andar],F=andares[S.andar],g={};
+  [...A.paredes,...A.ambientes].forEach(x=>(x.cx||[]).forEach(([il,v])=>{const k=O.linhas[il][0];g[k]=(g[k]||0)+v}));
+  const ar=O.areas[A.nome],gs=Object.entries(g).sort((a,b)=>b[1]-a[1]),mx=gs.length?gs[0][1]:1;
+  return `<h3>${esc(A.nome)} · custo B4</h3><div class="big">${brl(A.custo)}</div><div class="mut">${ar?brl(A.custo/ar)+"/m² de área construída · ":""}${(100*A.custo/O.total).toLocaleString("pt-BR",{maximumFractionDigits:1})}% da obra</div><table style="margin-top:6px">`
+   +gs.map(([k,v])=>lin(k,brl(v),v/mx)).join("")+"</table>"}
+ const soma=D.andares.reduce((s,A)=>s+A.custo,0),mx=Math.max(...D.andares.map(A=>A.custo));
+ let h=`<h3>Orçamento B4 · alvenaria e revestimentos</h3><div class="big">${brl(O.total)}</div><div class="mut">${ref} · ${brl(O.total/O.area)}/m² (${nf(O.area,0)} m² acima do subsolo)</div>`;
+ if(O.cub)h+=`<div class="mut">CUB ${esc(O.cub.padrao)} ${esc(O.cub.mes)}: ${brl(O.cub.valor)}/m² · B4 = ${(100*O.total/O.cub.ref).toLocaleString("pt-BR",{maximumFractionDigits:1})}% do custo do prédio pelo CUB</div>`;
+ h+=`<table style="margin-top:8px">`+O.grupos.map(([k,v])=>lin(k,brl(v))).join("")+`</table><h3 style="margin-top:10px">Por andar</h3><table>`
+  +D.andares.filter(A=>A.custo>0).map(A=>lin(A.nome,brl(A.custo),A.custo/mx)).join("")+"</table>";
+ const ok=Math.abs(soma-O.total)<1;
+ h+=`<div class="mut" style="margin-top:6px">Soma dos elementos no modelo: ${brl(soma)} ${ok?"= total do orçamento ✓":"(difere do orçamento)"}</div>`;
+ return h}
 function resumo(){
+ if(S.modo==="custo"&&D.orc){el("resumo").innerHTML=resumoCusto();return}
  if(S.andar>=0){const A=D.andares[S.andar];el("resumo").innerHTML=`<h3>${esc(A.nome)} · pé-direito ${nf(A.pd)} m · nível ${nf(A.z)} m</h3><table>`+A.resumo.map(([k,v])=>`<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")+"</table>"}
  else el("resumo").innerHTML=`<h3>Obra · principais insumos (família 39)</h3><table>`+D.resumoObra.map(([k,v])=>`<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")+"</table>";
 }
 function legenda(){
+ if(S.modo==="custo"){const [a,b]=ESCALA,u=S.metrica==="m2"?"/m²":"";
+  el("legenda").innerHTML=`<h3>Mapa de calor do custo</h3><div class="ctl"><select id="metrica" aria-label="Métrica do mapa">
+   <option value="parede">por parede (R$)</option><option value="m2">por m² de parede (R$/m²)</option><option value="andar">por andar (R$)</option></select></div>
+   <div class="grad"></div><div class="esc"><span>${brl(a)}${u}</span><span>${brl(b)}${u}</span></div>
+   <div style="margin-top:6px"><i style="display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px;background:rgb(${SEMCUSTO.map(x=>Math.round(x*255)).join(",")})"></i>sem custo na B4 (concreto, muros, subsolo)</div>
+   <div class="mut" style="margin-top:6px">Clique numa parede ou num ambiente para ver de onde vem o custo. Escala do 2º ao 98º percentil.</div>`;
+  const s=el("metrica");s.value=S.metrica;s.onchange=e=>{S.metrica=e.target.value;atualizar()};return}
  const it=S.modo==="ambientes"?Object.entries(COR_AMB).map(([k,c])=>[NOME_AMB[k],c]):S.modo==="paginacao"?NOME_PECA:Object.entries(COR_PAREDE).map(([k,c])=>[k,c]);
  el("legenda").innerHTML="<h3>Legenda</h3>"+it.map(([t,c])=>`<span style="display:inline-flex;align-items:center;margin:0 10px 4px 0"><i style="display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;background:#${c.toString(16).padStart(6,"0")}"></i>${esc(t)}</span>`).join("")
   +(S.modo==="paginacao"?'<div class="mut" style="margin-top:6px">Blocos do 1º ao 5º pavimento (família 39). Térreo e subsolo continuam como volume "a definir".</div>':"")
@@ -536,7 +616,7 @@ function legenda(){
 // ---------- seleção
 function limparSel(){
  if(!S.sel)return;const s=S.sel;
- if(s.tipo==="par"){const u=s.obj.userData,[ini,n]=u.faixas[s.ip],c=s.obj.geometry.attributes.color;for(let k=ini;k<ini+n;k++)c.setXYZ(k,...u.base);c.needsUpdate=true}
+ if(s.tipo==="par"){const u=s.obj.userData,[ini,n]=u.faixas[s.ip],c=s.obj.geometry.attributes.color,col=corDe(u,s.ip);for(let k=ini;k<ini+n;k++)c.setXYZ(k,...col);c.needsUpdate=true}
  if(s.tipo==="lin"){s.F.pecas.forEach(me=>{const u=me.userData,col=new THREE.Color();for(let i=0;i<u.linha.length;i++)if(u.linha[i]===s.il){col.setRGB(u.base[i*3],u.base[i*3+1],u.base[i*3+2]);me.setColorAt(i,col)}me.instanceColor.needsUpdate=true})}
  S.sel=null;
 }
@@ -551,7 +631,7 @@ function selecionar(hit){
   <tr><td class="k">Altura</td><td>${nf(u.A.pd)} m · ${Math.round(u.A.pd/0.2)} fiadas</td></tr>
   <tr><td class="k">Fachada</td><td>${p.fachada?"sim (externa)":"não (interna)"}</td></tr><tr><td class="k">Encontros</td><td>${esc(p.enc.join(" / "))}</td></tr>
   <tr><td class="k">Lado A</td><td>${esc(p.la.join(", "))}</td></tr><tr><td class="k">Lado B</td><td>${esc(p.lb.join(", "))}</td></tr>
-  <tr><td class="k">Vãos</td><td>${esc(vs)}</td></tr></table>`;
+  <tr><td class="k">Vãos</td><td>${esc(vs)}</td></tr></table>`+blocoCusto(p,p.comp*(p.h||u.A.pd),"m² de parede",u.A);
  }else if(u.tipo==="pec"){const il=u.linha[hit.instanceId],F=andares.find(x=>x.A===u.A),L=u.A.pag.linhas[il],y=new THREE.Color(SEL);
   F.pecas.forEach(me=>{const v=me.userData;for(let i=0;i<v.linha.length;i++)if(v.linha[i]===il)me.setColorAt(i,y);me.instanceColor.needsUpdate=true});
   S.sel={tipo:"lin",F,il,obj:o};
@@ -570,11 +650,16 @@ function selecionar(hit){
   <tr><td class="k">Perímetro</td><td>${nf(a.perim)} m</td></tr><tr><td class="k">Teto</td><td>${nf(a.teto)} m²</td></tr>
   <tr><td class="k">Rodapé</td><td>${nf(a.rodape)} m</td></tr><tr><td class="k">Parede líquida</td><td>${nf(a.parede)} m²</td></tr>
   <tr><td class="k">Portas / janelas</td><td>${a.portas??"—"} / ${a.janelas??"—"}</td></tr><tr><td class="k">Acabamento</td><td>${esc(a.acab)}</td></tr></table>`
-  +(a.obs?`<div class="mut" style="margin-top:6px">${esc(a.obs)}</div>`:"");
+  +(a.obs?`<div class="mut" style="margin-top:6px">${esc(a.obs)}</div>`:"")+blocoCusto(a,a.teto,"m² de teto",u.A);
  }
  if(window.innerWidth<=760)el("painel").classList.remove("min");
  atualizar();
 }
+function blocoCusto(x,area,unid,A){
+ if(!D.orc||!x.c)return "";const O=D.orc;
+ const it=(x.cx||[]).slice(0,10).map(([il,v])=>{const L=O.linhas[il];return `<tr><td class="k">${esc(L[1])}<div class="mut" style="font-size:11px">${esc(L[0])}</div></td><td>${brl(v)}</td></tr>`}).join("");
+ return `<h3 style="margin-top:12px">Custo (B4)</h3><div class="big">${brl(x.c)}</div><div class="mut">${area>0?brl(x.c/area)+"/"+esc(unid)+" · ":""}${A.custo?(100*x.c/A.custo).toLocaleString("pt-BR",{maximumFractionDigits:1})+"% do andar":""}</div>
+  <table style="margin-top:4px">${it}</table>${(x.cx||[]).length>10?`<div class="mut">+ ${x.cx.length-10} itens menores</div>`:""}`}
 function elevacao(L){
  const n=L.f.length,H=20;let x0=0,x1=L.comp;L.f.forEach(f=>f.forEach(([u,w])=>{x0=Math.min(x0,u);x1=Math.max(x1,u+w)}));
  const esc_=Math.max(0.35,Math.min(1.4,290/(x1-x0))),W=(x1-x0)*esc_+4,Ht=n*H*esc_+4;

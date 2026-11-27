@@ -8,23 +8,58 @@ Status em 27/11/2026:
 - **Família escolhida: 39** (27/11/2026).
 - **Amarração revisada (27/11/2026).** A paginação tinha 7.845 juntas a prumo (29%): toda fiada começava no mesmo ponto quando a ponta era T, vão ou bloco especial. Agora cada trecho escolhe a arrumação (inteiro ou meio no início, sobra numa ou noutra ponta, compensador se preciso), o bloco T e as pontas de verga se deslocam até 20 cm, e a conferência dá **0 juntas a prumo** em 25.303 juntas.
 - **B3 (insumos) feita:** `leitor/leitor/insumos.py` e aba "Insumos (B3)". Cada linha é base medida × coeficiente × (1 + perda), com coeficiente e perda editáveis.
-- Próximo: B4 (preço).
+- **B4 (preço) feita:** `leitor/leitor/orcamento.py`, `sinapi.py`, `cub.py` e as abas "Orçamento (B4)", "Preços (B4)" e "Custo por pavimento (B4)".
+  - SINAPI baixado da Caixa (SP, 10/2026, sem desoneração) e CUB do SindusCon-SP (R8-N, 10/2026).
+  - Blocos, canaletas, argamassa e tela: quantidade da paginação × insumo SINAPI.
+  - Mão de obra da alvenaria: pedreiro + servente da composição SINAPI.
+  - Graute, armação, encunhamento e revestimentos: composição SINAPI completa.
+- Correção junto com a B4: 19 trechos curtos do muro inclinado do térreo entravam como fachada (cerca de 22 m² de pintura). Agora são muro.
+
+### Resultado da B4 (SINAPI 10/2026 SP, sem desoneração, sem BDI)
+
+| Grupo | Custo direto |
+|---|---|
+| Alvenaria estrutural (blocos, argamassa, mão de obra) | R$ 142.103 |
+| Alvenaria de vedação (blocos, argamassa, tela, mão de obra, encunhamento) | R$ 84.512 |
+| Graute | R$ 31.147 |
+| Armação | R$ 27.693 |
+| Revestimento interno (fundo preparador, gesso, chapisco + emboço + cerâmica) | R$ 184.491 |
+| Revestimento externo (selador + textura: fachada, varandas, platibanda) | R$ 42.024 |
+| **Total** | **R$ 511.971** |
+
+- Por pavimento-tipo: cerca de R$ 98 mil (R$ 440/m²). Térreo: R$ 19,9 mil (só revestimentos). Cobertura: R$ 3,9 mil (platibanda).
+- R$ 385/m² sobre 1.329 m² acima do subsolo = 15,6% do custo do prédio pelo CUB R8-N (R$ 2.245,68/m² × 1.458 m²).
+- Maiores itens:
+  - gesso das paredes: R$ 59 mil;
+  - bloco 14×19×39: R$ 53 mil;
+  - mão de obra da alvenaria estrutural: R$ 43 mil;
+  - mão de obra da vedação: R$ 37 mil.
+- Os 4.228 blocos para cortes custam R$ 20,7 mil (4% da B4). Modular portas e janelas reduz esse valor.
+- Premissas a confirmar (todas editáveis na aba Preços (B4)):
+  - fbk 8/8/6/4,5/4,5 MPa do 1º ao 5º pavimento;
+  - fgk 20 MPa;
+  - cerâmica 33×45 sobre chapisco + emboço de 10 mm.
+- Preços derivados (sem item no SINAPI, a cotar):
+  - bloco T 14×19×54 = 54/39 do inteiro;
+  - canaleta J = canaleta U;
+  - canaleta 9×19×39 = 2 × canaleta 9×19×19.
+- A pintura projetada não existe no SINAPI: usei a textura acrílica manual como equivalente.
 
 ### Resultado da B3 (obra: 1º ao 5º pavimento; fachada e gesso incluem o térreo)
 
 | Insumo | Quantidade (com perdas) |
 |---|---|
-| Bloco 14×19×39 / meio / 34 / 54 | 10.983 / 1.302 / 378 / 168 un |
-| Canaleta J / U (14 cm) | 1.024 / 1.607 un (+ meias) |
-| Blocos para cortes/compensadores | 4.196 un (cai muito com portas/janelas moduladas) |
-| Bloco 9×19×39 / meio / canaleta | 9.954 / 1.754 / 315 un |
+| Bloco 14×19×39 / meio / 34 / 54 | 10.855 / 1.320 / 378 / 257 un |
+| Canaleta J / U (14 cm) | 1.008 / 1.587 un (+ meias) |
+| Blocos para cortes/compensadores | 4.228 un (cai muito com portas/janelas moduladas) |
+| Bloco 9×19×39 / meio / canaleta | 9.984 / 1.695 / 315 un |
 | Argamassa de assentamento (estrutural + vedação) | 5,96 + 3,95 m³ |
-| Graute (cintas, vergas/contravergas, pontos verticais, vedação) | 7,83 + 6,46 + 13,76 + 0,99 m³ |
-| Aço (Ø10 cintas, Ø8 vergas, Ø10 verticais, Ø6,3 vedação) | 715 + 378 + 753 + 65 kg |
+| Graute (cintas, vergas/contravergas, pontos verticais, vedação) | 7,83 + 6,48 + 13,76 + 0,99 m³ |
+| Aço (Ø10 cintas, Ø8 vergas, Ø10 verticais, Ø6,3 vedação) | 715 + 379 + 753 + 65 kg |
 | Telas vedação × estrutural / encunhamento | 792 un / 450 m |
 | Fundo preparador / gesso paredes / gesso tetos | 3.871 / 2.775 / 1.096 m² |
 | Cerâmica banheiros (até o teto) / cozinhas (1,50 m) | 370 / 343 m² (premissa) |
-| Pintura projetada: fachada / varandas / platibanda | 1.091 / 246 / 176 m² |
+| Pintura projetada: fachada / varandas / platibanda | 1.067 / 246 / 176 m² |
 
 ### Resultado da B2 (por pavimento-tipo; os 5 são iguais)
 
@@ -138,7 +173,7 @@ Para cada parede, fiada a fiada:
 | **B1. Modelo de paredes** | Eixos, espessuras, encontros, vãos e classificação; página para revisar a classificação | Comprimentos × altura batem com as faces da Fase 1; tipos idênticos entre si; classificação revisada por você |
 | **B2. Paginação e blocos** | Contagem por tipo de bloco, pavimento e parede; elevações SVG; relatório de paredes fora de módulo | 3 ou 4 paredes típicas conferidas à mão contra a elevação gerada |
 | **B3. Demais insumos** | Argamassa, graute, aço, telas, encunhamento, revestimentos, com premissas editáveis na planilha | Cada número rastreável até a parede e a premissa que o gerou |
-| **B4. Preço** | Ligação a SINAPI e cotações; custo da alvenaria e dos revestimentos por pavimento; comparação com CUB | Total por m² na faixa esperada, ou diferença explicada |
+| **B4. Preço** ✅ | Ligação a SINAPI e cotações; custo da alvenaria e dos revestimentos por pavimento; comparação com CUB | Total por m² na faixa esperada, ou diferença explicada |
 | *(opcional)* | Exportação IFC | Abre num visualizador BIM gratuito |
 
 A B1 não depende das decisões abaixo e pode começar já.

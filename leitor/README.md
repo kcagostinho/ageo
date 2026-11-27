@@ -12,11 +12,11 @@ Saídas em `--saida`:
 
 | Arquivo | Conteúdo |
 |---|---|
-| `medicao.xlsx` | Resumo por pavimento; **quantitativos por ambiente** (piso, teto, rodapé, parede bruta/líquida) e resumo por tipo de ambiente; ambientes (rótulo × medida); esquadrias; premissas (pé-direito editável); calibração |
+| `medicao.xlsx` | **Orçamento da alvenaria e dos revestimentos (B4, SINAPI)**, preços e custo por pavimento; insumos (B3); paginação; paredes; resumo por pavimento; **quantitativos por ambiente** (piso, teto, rodapé, parede bruta/líquida) e resumo por tipo de ambiente; ambientes (rótulo × medida); esquadrias; premissas (pé-direito editável); calibração |
 | `conferencia.html` | Prancha com cada ambiente desenhado e colorido pelo status, para conferência visual |
 | `paredes.html` | Modelo de paredes: cada parede com eixo e espessura, colorida por tipo (estrutural, vedação…). Clique para reclassificar e baixe os ajustes |
 | `paginacao.html` | Paginação estimada: elevação de cada parede bloco a bloco, famílias 29 e 39, com comparação de peças e cortes |
-| `modelo3d.html` | Modelo 3D (three.js embutido): andares alinhados pelo núcleo, paredes por tipo com vãos, ambientes clicáveis, **paginação em blocos 3D** (cintas, vergas, contravergas e pontos de graute em destaque), esquadrias, lajes, cobertura com telhados e reservatórios, muros, filtros, cortes horizontal e vertical e resumo por andar |
+| `modelo3d.html` | Modelo 3D (three.js embutido): andares alinhados pelo núcleo, paredes por tipo com vãos, ambientes clicáveis, **paginação em blocos 3D** (cintas, vergas, contravergas e pontos de graute em destaque), esquadrias, lajes, cobertura com telhados e reservatórios, muros, filtros, cortes horizontal e vertical, resumo por andar e **mapa de calor do custo (B4)** |
 | `obra.json` | Tudo acima com os polígonos, para as próximas fases (lacunas, EAP) |
 
 ## Como mede
@@ -48,6 +48,12 @@ Saídas em `--saida`:
     - telas nos encontros vedação × estrutural e encunhamento;
     - fundo preparador + gesso por dentro, cerâmica das áreas molhadas e pintura projetada na fachada, varandas e platibanda.
 13. **Cobertura e muros inclinados** (`cobertura.py`): parapeito, platibanda, águas do telhado (hachura `A-ROOF-PATT`), calhas e reservatórios da planta de cobertura; muros inclinados por pares de linhas paralelas de `A-WALL`.
+14. **Orçamento — B4** (`orcamento.py`, `sinapi.py`, `cub.py`, `saida_orcamento.py`):
+    - baixa o SINAPI do mês na Caixa (só SP fica em `obras/_sinapi/`) e o CUB do SindusCon-SP;
+    - material contado na paginação × insumo SINAPI; mão de obra da alvenaria tirada da composição SINAPI; graute, armação e revestimentos por composição completa;
+    - abas Orçamento, Preços (desoneração, BDI, fbk por pavimento, cotações) e Custo por pavimento, todas com fórmulas;
+    - rateio do custo por parede, ambiente e cobertura para o 3D (a soma confere com o total);
+    - opções: `--sinapi AAAA-MM`, `--desonerado`, `--sem-preco`; premissas da obra na chave `orcamento` do `premissas.json`.
 9. **Quantitativos** (`quantitativos.py`): contorno de cada ambiente classificado em parede, vão ou aberto (guarda-corpo, lado aberto).
    - Piso = área. Teto = área coberta.
    - Rodapé = contorno com parede − portas.

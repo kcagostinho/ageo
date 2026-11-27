@@ -32,6 +32,10 @@ from leitor import insumos as INS              # noqa: E402
 from leitor import saida_insumos as SINS       # noqa: E402
 from leitor import saida_3d as S3D             # noqa: E402
 from leitor import cobertura as COB            # noqa: E402
+from leitor import sinapi as SIN               # noqa: E402
+from leitor import cub as CUB                  # noqa: E402
+from leitor import orcamento as ORC            # noqa: E402
+from leitor import saida_orcamento as SORC     # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
 from leitor.esquadrias import ler_esquadrias   # noqa: E402
 from leitor.ingestao import extrair            # noqa: E402
@@ -39,6 +43,22 @@ from leitor.vistas import encontrar_vistas     # noqa: E402
 
 STATUS_TXT = {"ok": "Conferido", "conferir": "Conferir", "divergente": "Divergente",
               "rotulos_juntos": "Rótulos juntos", "sem_poligono": "Sem polígono"}
+
+
+def _trecho_de_muro_inclinado(p: dict, eixos: list, m: float) -> bool:
+    """Parede curta (≤ 0,80 m) de tipo muro/a definir/concreto com o meio a menos de 35 cm do eixo
+    de um muro inclinado — mesma regra que o 3D usa para trocar os degraus pelo muro inteiro."""
+    if p["comprimento_m"] > 0.8 or p["tipo"] not in ("muro", "a definir", "concreto"):
+        return False
+    e = p["eixo"]
+    mx, my = (e[0] + e[2]) / 2, (e[1] + e[3]) / 2
+    for x0, y0, x1, y1 in eixos:
+        dx, dy = x1 - x0, y1 - y0
+        L2 = dx * dx + dy * dy or 1e-9
+        t = max(0.0, min(1.0, ((mx - x0) * dx + (my - y0) * dy) / L2))
+        if ((mx - x0 - t * dx) ** 2 + (my - y0 - t * dy) ** 2) ** 0.5 * m < 0.35:
+            return True
+    return False
 
 
 def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
@@ -77,11 +97,16 @@ def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
             pws = PAR.extrair(ctx, ad, v.titulo, m, vid)
             PAR.classificar(pws, unidades, tem_unidades=bool(unidades))
             nome_lado = {x["_rotulo"]: (f'{unidades[x["_rotulo"]]} · ' if x["_rotulo"] in unidades else "") + x["nome"] for x in ad}
+            incl = [mi["eixo"] for mi in muros_incl if mi["vista"] == vid]
             for pw in pws:
                 d_ = pw.__dict__.copy()
                 d_["lado_a"] = [nome_lado.get(l, l) for l in pw.lado_a]
                 d_["lado_b"] = [nome_lado.get(l, l) for l in pw.lado_b]
                 d_["vista"] = vid
+                # trechos curtos que são o muro inclinado picado em degraus (o 3D usa o muro inteiro):
+                # no térreo viram muro, para não entrarem como fachada na pintura nem no orçamento
+                if incl and "sub" not in v.titulo.lower() and _trecho_de_muro_inclinado(d_, incl, m):
+                    d_["tipo"], d_["fachada"], d_["motivo"] = "muro", False, "trecho do muro inclinado (divisa)"
                 paredes_out.append(d_)
             for i, a in enumerate(ambs):
                 ambientes_out.append({
@@ -166,6 +191,36 @@ def medir(pdf: Path, saida: Path, obra: str, familia: str = "39") -> dict:
     return dados
 
 
+PASTA_PRECOS = Path(__file__).parent / "obras" / "_sinapi"
+
+
+def orcamento(dados: dict, saida: Path, mes: str | None = None, desonerado: bool | None = None) -> dict | None:
+    """B4: SINAPI (mês pedido, ou o último publicado) + CUB. Premissas da obra em premissas.json
+    (chave "orcamento": desonerado, bdi, fator_canaleta_j, padrao_cub, fbk por pavimento)."""
+    if not dados.get("insumos"):
+        return None
+    if not mes:
+        hoje = date.today().strftime("%Y-%m")
+        try:
+            mes = SIN.ultimo_mes(hoje, tentativas=3)
+        except Exception:
+            mes = None
+        if not mes:                                   # sem rede: o mais recente em cache
+            cache = sorted(PASTA_PRECOS.glob("sinapi_SP_*.json"))
+            mes = cache[-1].stem[-7:].replace("_", "-") if cache else None
+    if not mes:
+        print("B4: SINAPI indisponível (sem rede e sem cache); orçamento não gerado.")
+        return None
+    sin = SIN.carregar(mes, PASTA_PRECOS)
+    cb = CUB.carregar(PASTA_PRECOS)
+    arq = saida.parent / "premissas.json"
+    po = json.loads(arq.read_text()).get("orcamento", {}) if arq.exists() else {}
+    prem = {k: po[k] for k in ("desonerado", "bdi", "fator_canaleta_j", "padrao_cub") if k in po}
+    if desonerado is not None:
+        prem["desonerado"] = desonerado
+    return ORC.calcular(dados, sin, cb, prem, po.get("fbk"))
+
+
 # ---------------------------------------------------------------- planilha
 def _cabecalho(ws, titulos, larguras):
     for i, (t, w) in enumerate(zip(titulos, larguras), 1):
@@ -206,7 +261,14 @@ def planilha(dados: dict, destino: Path):
         ("• O critério de desconto de vãos do SINAPI (ex.: não descontar vãos pequenos) será aplicado na EAP; aqui ficam bruta e líquida.", False),
         ("• Pé-direito lido dos cortes (aba Premissas, editável).", False),
         ("", False),
-        ("Fora desta fase: áreas de terreno (planta de locação), cobertura, fachadas e cortes.", False),
+        ("Orçamento da alvenaria e dos revestimentos — B4 (abas Orçamento, Preços e Custo por pavimento)", True),
+        ("• Preços do SINAPI (Caixa), São Paulo, mês de referência na aba Preços (B4). Desoneração, BDI, fbk por pavimento e cotações são editáveis.", False),
+        ("• Blocos, canaletas, argamassa e tela: quantidade da paginação (aba Insumos (B3)) × preço do insumo SINAPI.", False),
+        ("• Mão de obra da alvenaria: área líquida × pedreiro + servente da composição SINAPI (sem os materiais, que vêm da paginação).", False),
+        ("• Graute, armação, encunhamento e revestimentos: composição SINAPI completa × quantidade medida.", False),
+        ("• Conferência: custo por m² e comparação com o CUB do SindusCon-SP no fim da aba Orçamento (B4).", False),
+        ("", False),
+        ("Fora desta fase: áreas de terreno (planta de locação), estrutura de concreto, pisos, instalações e esquadrias.", False),
     ]
     for i, (t, b) in enumerate(linhas, 1):
         leia.cell(row=i, column=1, value=t).font = Font(bold=b, size=13 if i == 1 else 11)
@@ -368,7 +430,9 @@ def planilha(dados: dict, destino: Path):
         SPG.abas(wb, dados, _cabecalho)
     if dados.get("insumos"):
         SINS.aba(wb, dados["insumos"], _cabecalho)
-    ordem_abas = ["Leia-me", "Resumo", "Insumos (B3)", "Resumo quantitativos", "Resumo paredes", "Paginação", "Quantitativos", "Paredes",
+    if dados.get("orcamento"):
+        SORC.abas(wb, dados, _cabecalho)
+    ordem_abas = ["Leia-me", "Resumo", "Orçamento (B4)", "Insumos (B3)", "Preços (B4)", "Custo por pavimento (B4)", "Resumo quantitativos", "Resumo paredes", "Paginação", "Quantitativos", "Paredes",
                   "Paginação por parede", "Ambientes", "Esquadrias", "Premissas", "Calibração"]
     ordem_abas = [n for n in ordem_abas if n in wb.sheetnames]
     wb._sheets = [wb[n] for n in ordem_abas]
@@ -523,9 +587,22 @@ def main():
     ap.add_argument("--obra", default="Obra")
     ap.add_argument("--saida", type=Path, required=True)
     ap.add_argument("--familia", default="39", choices=["29", "39"], help="família do bloco estrutural (padrão 39)")
+    ap.add_argument("--sinapi", help="mês de referência do SINAPI, AAAA-MM (padrão: o último publicado)")
+    ap.add_argument("--desonerado", action="store_true", default=None, help="usar preços com desoneração")
+    ap.add_argument("--sem-preco", action="store_true", help="não gerar o orçamento (B4)")
     a = ap.parse_args()
     a.saida.mkdir(parents=True, exist_ok=True)
     dados = medir(a.pdf, a.saida, a.obra, a.familia)
+    if not a.sem_preco:
+        try:
+            orc = orcamento(dados, a.saida, a.sinapi, a.desonerado)
+        except Exception as e:                        # o orçamento não pode derrubar a medição
+            print("B4: orçamento não gerado:", e)
+            orc = None
+        if orc:
+            dados["orcamento"] = orc
+            rs = f"{orc['total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            print(f"B4: SINAPI {orc['mes']} {orc['uf']}, custo direto R$ {rs}")
     (a.saida / "obra.json").write_text(json.dumps(dados, ensure_ascii=False, indent=1), encoding="utf-8")
     planilha(dados, a.saida / "medicao.xlsx")
     pagina_conferencia(dados, a.pdf, a.saida / "conferencia.html")
