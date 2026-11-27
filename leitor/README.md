@@ -98,7 +98,13 @@ Saídas em `--saida`:
       - tubo horizontal embutido em parede estrutural;
       - tubo vertical em ponto de graute;
       - tubo na altura de verga ou contraverga.
-    - Por enquanto entram as colunas dos apartamentos. Barrilete, alimentação, extravasor, térreo e subsolo são a próxima etapa (`../docs/plano-hidrossanitario.md`).
+    - **Barrilete, térreo, subsolo e colunas do prédio**:
+      - horizontais pela planta (posição exata; altura por premissa);
+      - verticais pela vista que mais os mostra;
+      - colunas que atravessam o prédio uma vez;
+      - o rótulo repetido em pedaços alinhados do mesmo tubo conta uma vez.
+    - **Preço** (`orcamento_hid.py`, aba "Instalações (B4)"): composição SINAPI por DN e tipo de trecho (prumada, ramal de distribuição, ramal/sub-ramal) e por código de conexão/registro. Peça sem composição tem o preço derivado da mais parecida, trocando o insumo.
+    - Resultado e pontos para o projetista em `../docs/plano-hidrossanitario.md`.
 ## Limitações conhecidas
 
 - Depende de PDF vetorial com camadas no padrão do CAD (nomes AIA: `A-WALL`, `A-DOOR`…). PDF escaneado não funciona.

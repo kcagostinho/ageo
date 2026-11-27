@@ -42,6 +42,7 @@ from leitor import conferencia as CONF         # noqa: E402
 from leitor import alteracoes as ALT           # noqa: E402
 from leitor import hidraulica as HID           # noqa: E402
 from leitor import saida_hidraulica as SHID    # noqa: E402
+from leitor import orcamento_hid as OHID       # noqa: E402
 from dataclasses import replace as dc_replace  # noqa: E402
 from shapely.geometry import Polygon as _Poly   # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
@@ -547,9 +548,10 @@ def planilha(dados: dict, destino: Path):
     if dados.get("orcamento"):
         SORC.abas(wb, dados, _cabecalho)
     SHID.abas(wb, dados, _cabecalho)
+    SHID.aba_orcamento(wb, dados, _cabecalho)
     CONF.aba(wb, CONF.checar(dados), _cabecalho)
     ordem_abas = ["Leia-me", "Conferência", "Resumo", "Orçamento (B4)", "Insumos (B3)", "Preços (B4)", "Custo por pavimento (B4)", "Resumo quantitativos", "Resumo paredes", "Paginação", "Quantitativos", "Paredes",
-                  "Paginação por parede", "Ambientes", "Esquadrias", "Água fria", "Água fria por coluna", "Água fria trechos",
+                  "Paginação por parede", "Ambientes", "Esquadrias", "Água fria", "Instalações (B4)", "Água fria por coluna", "Água fria trechos",
                   "Água fria leitura", "Premissas", "Calibração"]
     ordem_abas = [n for n in ordem_abas if n in wb.sheetnames]
     wb._sheets = [wb[n] for n in ordem_abas]
@@ -717,7 +719,7 @@ def main():
         af = HID.ler_agua_fria(a.agua_fria, dados, log=print)
         dados["hidraulica"] = {"agua_fria": af}
         q = Counter()
-        for t in af["trechos"] + af["curtos"]:
+        for t in af["trechos"] + af["curtos"] + af["complemento"]["trechos"]:
             q[t["dn"]] += t["L"]
         au = af["auditoria"]["resumo"]
         print("água fria: " + ", ".join(f"DN{k} {v:.2f} m" for k, v in sorted(q.items())) +
@@ -732,6 +734,15 @@ def main():
             dados["orcamento"] = orc
             rs = f"{orc['total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             print(f"B4: SINAPI {orc['mes']} {orc['uf']}, custo direto R$ {rs}")
+            af = (dados.get("hidraulica") or {}).get("agua_fria")
+            if af:
+                mm = orc["mes"]                       # "10/2026" -> "2026-10"
+                sin = SIN.carregar(f"{mm[3:]}-{mm[:2]}" if "/" in mm else mm, PASTA_PRECOS)
+                m1 = next(v["m_por_pt"] for v in dados["vistas"] if v["titulo"] == "1ºPavimento")
+                af["orcamento"] = OHID.calcular(af, sin, {"desonerado": orc["premissas"]["desonerado"]}, m1)
+                rs = f"{af['orcamento']['total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                print(f"água fria: SINAPI {orc['mes']}, custo direto R$ {rs}" +
+                      (f" (sem preço: {', '.join(af['orcamento']['nao_achou'])})" if af["orcamento"]["nao_achou"] else ""))
     (a.saida / "obra.json").write_text(json.dumps(dados, ensure_ascii=False, indent=1), encoding="utf-8")
     planilha(dados, a.saida / "medicao.xlsx")
     pagina_conferencia(dados, a.pdf, a.saida / "conferencia.html")

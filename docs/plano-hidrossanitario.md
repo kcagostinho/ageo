@@ -51,11 +51,11 @@
 
 | Etapa | Entrega | Situação |
 |---|---|---|
-| H1a | Rede de água fria dos isométricos + quantitativo | **Feito para as 12 prumadas dos apartamentos** |
-| H1b | Água fria no 3D | **Feito para as colunas dos apartamentos** (modo "Instalações") |
-| H1c | Auditoria de interferências + preço | Auditoria feita (0 conflitos). Preço SINAPI: próxima etapa |
-| H1d | Barrilete, alimentação (AL), extravasor, térreo e subsolo | Próxima etapa: plantas da cobertura/térreo/subsolo e isométricos do barrilete e do salão de festas |
-| H2a–c | O mesmo para o esgoto (com caimento, caixas e ralos) | Depois da água fria |
+| H1a | Rede de água fria das prumadas dos apartamentos (isométricos) | **Feito** |
+| H1b | Água fria no 3D (modo "Instalações") | **Feito** (prumadas, barrilete, térreo, subsolo e colunas do prédio) |
+| H1c | Auditoria de interferências + preço SINAPI | **Feito**: 0 conflitos; R$ 27.569,26 (SINAPI 10/2026, custo direto) |
+| H1d | Barrilete, alimentação (AL), extravasor, térreo e subsolo | **Feito** no quantitativo. Posição no 3D: horizontais pela planta (altura por premissa); 43 m de verticais do barrilete/térreo só no quantitativo |
+| H2a–c | O mesmo para o esgoto (com caimento, caixas e ralos) | Próxima etapa |
 
 ## 4. Como ficou a leitura (H1a/H1b, 27/11/2026)
 
@@ -88,26 +88,64 @@
   - Nenhum tubo horizontal está em parede estrutural, nenhum vertical cai em ponto de graute e nenhum cruza verga ou contraverga.
   - O projeto hidráulico está compatível com a alvenaria estrutural.
 
-### Quantitativo das prumadas dos apartamentos × tabela do projetista
+### Quantitativo do prédio × tabela do projetista
 
-| Tubo PVC soldável | Prumadas dos aptos (modelo) | Tabela do projetista (prédio todo) |
-|---|---|---|
-| DN20 | 100,96 m | 113,52 m |
-| DN25 | 205,83 m | 257,25 m |
-| DN32 | 24,04 m | 145,66 m |
-| DN40 | — | 5,45 m |
-| DN50 | — | 23,23 m |
+| Tubo PVC soldável | Prumadas dos aptos | Barrilete (cobertura) | Térreo e subsolo | Colunas do prédio | **Modelo** | **Tabela** | Diferença |
+|---|---|---|---|---|---|---|---|
+| DN20 | 100,96 | — | 8,06 | — | **109,02** | 113,52 | −4,50 |
+| DN25 | 205,83 | 21,83 | 15,56 | 14,57 (AF-13) | **257,79** | 257,25 | +0,54 |
+| DN32 | 24,04 | 50,94 | 24,72 | 43,45 (AL 22,58 + extravasor 20,87) | **143,15** | 145,66 | −2,51 |
+| DN40 | — | 5,45 | — | — | **5,45** | 5,45 | 0 |
+| DN50 | — | 23,90 | — | — | **23,90** | 23,23 | +0,67 |
+| **Total** | 330,83 | 102,12 | 48,34 | 58,02 | **539,31** | 545,11 | **−1,1%** |
 
-- A diferença é o que falta ler: barrilete, alimentação (AL, cerca de 20 m em DN32 do hidrômetro aos reservatórios), extravasor, térreo (salão de festas) e subsolo.
-- A tabela do projetista não bate com a soma simples dos rótulos de nenhuma vista: o DN25 dos isométricos dos aptos sozinho já passa dela (336,7 m somando os repetidos). Ela será comparada de novo quando a rede estiver completa.
-- **Conexões e registros**: os códigos lidos batem com a tabela onde o item é só dos apartamentos:
-  - registro de chuveiro 20 mm: 16 = 16;
-  - registro de chuveiro 25 mm: 4 = 4;
-  - registro de gaveta 25 mm: 45 = 45.
+**Regra "cada tubo uma vez", usada no barrilete, térreo e subsolo:**
+- Horizontais: pela planta. O rótulo repetido no mesmo tubo conta uma vez, inclusive quando o tubo aparece quebrado em pedaços alinhados.
+- Verticais: pela vista (planta ou isométrico) que mais os mostra.
+- Horizontais que só o isométrico rotula: entram no que passa do que a planta já tem.
+- Colunas que atravessam o prédio: uma vez.
+
+**Antes de chegar nessa regra:**
+- Somar todas as vistas dava 626,7 m, porque cada tubo vertical longo aparecia em 3 ou 4 vistas e pedaços do mesmo tubo levavam o mesmo rótulo.
+- O DN40 do barrilete (4,13 + 1,32 = 5,45 m) confirma a regra: fecha exato com a tabela.
+
+**Conexões e registros:**
+- 15 dos 25 códigos batem exatamente com a tabela, entre eles:
+  - registros de chuveiro e de gaveta;
+  - registros de esfera de 25 e 50 mm;
+  - tês de 40 e 50 mm;
+  - buchas de 32×25, 40×32 e 50×40.
+- Os outros diferem de 1 a 6 peças (joelho 32 mm: −6; tê 32 mm: −3). São conexões das verticais do barrilete e do salão que só aparecem nos isométricos.
+
+### Preço (SINAPI 10/2026 SP, sem desoneração, custo direto)
+
+| Grupo | Custo |
+|---|---|
+| Tubos (por DN e tipo de trecho: prumada, ramal de distribuição, ramal/sub-ramal) | R$ 10.497,36 |
+| Conexões | R$ 9.920,03 |
+| Registros e hidrômetro | R$ 7.151,87 |
+| **Total** | **R$ 27.569,26** |
+
+**Premissas do preço:**
+- **Tipo de trecho.** O SINAPI tem composição por tipo de trecho, porque a produtividade muda: o DN25 custa R$ 6,80/m na prumada e R$ 30,74/m no sub-ramal. No modelo:
+  - coluna vertical = prumada;
+  - barrilete, alimentação, térreo e subsolo = ramal de distribuição;
+  - dentro do apartamento = ramal/sub-ramal.
+- **Registros:**
+  - gaveta cromado: latão com canopla cromada, porque não há de PVC no SINAPI;
+  - chuveiro PVC: registro de pressão PVC soldável.
+- **Joelho 20 × 1/2" com bucha de latão** (código 09, 140 peças): não tem composição no SINAPI. O preço é derivado da composição do 25 × 1/2" (90373), trocando o insumo 20147 pelo 3515.
+- **Hidrômetro DN 1"**: em geral é fornecido pela concessionária. Conferir.
 
 ## 5. Pontos para o projetista hidráulico
 
 1. **Rótulos ausentes nas cozinhas.** Alguns tubos curtos estão desenhados mas sem rótulo em alguns andares (0,06 a 0,54 m). Completar os rótulos nos isométricos das cozinhas.
 2. **Rótulo repetido.** O trecho da coluna entre andares aparece rotulado duas vezes. Não é erro de quantidade se a tabela contar o tubo uma vez, mas confunde quem soma pelo desenho.
-3. **Tabela "Tubos Rígidos".** Confirmar se é da revisão atual: será conferida quando o barrilete e o térreo estiverem no modelo.
+3. **Tabela "Tubos Rígidos".** O modelo fecha em −1,1% (539,31 × 545,11 m), e o DN40 bate exato.
+   - DN20 (−4,5 m) e DN32 (−2,5 m): provavelmente verticais do salão de festas e do barrilete que não têm rótulo em nenhuma vista.
+   - Pedir ao projetista o relatório por trecho, se houver.
 4. **Bucha de redução "250x40 mm"** (código 04) na tabela de conexões: provável erro de digitação (50x40 mm).
+5. **Rótulos repetidos também nas plantas.**
+   - No barrilete, o "DN25 5,09m" aparece 11 vezes, para 4 tubos.
+   - O "DN40 4,13m" aparece 3 vezes, para 1 tubo.
+   - A alimentação e o extravasor aparecem rotulados em várias plantas e vistas.

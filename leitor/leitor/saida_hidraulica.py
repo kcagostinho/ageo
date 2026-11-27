@@ -34,10 +34,15 @@ def abas(wb, dados, cabecalho):
     cabecalho(ws, ["Item", "Modelo", "Tabela do projetista", "Diferença", "Observação"], [44, 14, 18, 14, 70])
     r = 2
     r = _titulo(ws, r, f"Tubos por diâmetro (m) — fonte: {af['pdf']}")
-    tot = Counter()
+    comp = (af.get("complemento") or {}).get("trechos", [])
+    tot, por_grupo = Counter(), defaultdict(Counter)
     for t in af["trechos"] + af["curtos"]:
         tot[int(t["dn"])] += t["L"]
-    escopo = "colunas dos apartamentos (isométricos de prumada, 1º ao 5º pavimento e o trecho do térreo da coluna AF-09)"
+        por_grupo["Prumadas dos apartamentos"][int(t["dn"])] += t["L"]
+    for t in comp:
+        tot[int(t["dn"])] += t["L"]
+        por_grupo[t["grupo"]][int(t["dn"])] += t["L"]
+    i0 = r
     for dn in sorted(set(tot) | {int(k) for k in tab["tubos"]}):
         m_, t_ = round(tot.get(dn, 0), 2), tab["tubos"].get(str(dn))
         ws.cell(row=r, column=1, value=f"Tubo PVC soldável marrom DN{dn}")
@@ -45,18 +50,27 @@ def abas(wb, dados, cabecalho):
         if t_ is not None:
             ws.cell(row=r, column=3, value=t_).number_format = "#,##0.00"
             ws.cell(row=r, column=4, value=f"=B{r}-C{r}").number_format = "#,##0.00;-#,##0.00"
-        ws.cell(row=r, column=5, value=escopo if dn in tot else "só no barrilete/térreo/subsolo (próxima etapa)")
+        ws.cell(row=r, column=5, value=" · ".join(f"{g}: {v[dn]:.2f}".replace(".", ",") for g, v in por_grupo.items() if v.get(dn)))
         r += 1
-    r += 1
-    ws.cell(row=r, column=1, value=("O modelo conta cada tubo desenhado uma vez. Nos isométricos, o trecho da coluna entre dois andares "
-                                    "aparece rotulado duas vezes (uma em cada andar): conta uma vez. Barrilete (cobertura), alimentação "
-                                    "(AL), extravasor, térreo e subsolo entram na próxima etapa; por isso o total ainda fica abaixo da tabela.")).alignment = Alignment(wrap_text=True)
+    ws.cell(row=r, column=1, value="Total").font = Font(bold=True)
+    for col in (2, 3, 4):
+        L = ws.cell(row=r, column=col).column_letter
+        ws.cell(row=r, column=col, value=f"=SUM({L}{i0}:{L}{r - 1})").number_format = "#,##0.00;-#,##0.00"
+        ws.cell(row=r, column=col).font = Font(bold=True)
+    r += 2
+    ws.cell(row=r, column=1, value=(
+        "Cada tubo uma vez. Prumadas dos apartamentos: isométricos de coluna (rótulo repetido no mesmo tubo conta uma vez; tubo sem "
+        "rótulo num andar herda o do mesmo tubo noutro andar). Barrilete, térreo e subsolo: horizontais pela planta; verticais pela "
+        "vista (planta ou isométrico) que mais os mostra; horizontais que só o isométrico rotula, no que passa da planta; colunas que "
+        "atravessam o prédio (alimentação, extravasor, AF-13) uma vez.")).alignment = Alignment(wrap_text=True, vertical="top")
     ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
-    ws.row_dimensions[r].height = 45
+    ws.row_dimensions[r].height = 60
     r += 2
     r = _titulo(ws, r, "Conexões e registros (unidades)")
     r = _linha_cab(ws, r, ["Código · peça", "Modelo", "Tabela do projetista", "Diferença", ""])
     cod_m = Counter(c["cod"] for c in af["conexoes"])
+    for cs in ((af.get("complemento") or {}).get("codigos_plantas") or {}).values():
+        cod_m.update(cs)
     descr = {k: v for k, v in {**tab.get("conexoes", {}), **tab.get("registros", {})}.items()}
     for k in sorted(set(cod_m) | set(descr)):
         d = descr.get(k) or []
@@ -109,6 +123,12 @@ def abas(wb, dados, cabecalho):
     for t in af["curtos"]:
         tr.append(["—", t["col"], t["pav"], int(t["dn"]), t["L"], "curto", "—", "—", "", None, None, t["origem"],
                    "tubo curto entre conexões (sem traço próprio no desenho)"])
+    for n, t in enumerate(comp, 1):
+        zz = niv.get(t["pav"], 0)
+        tr.append([f"{t['grupo'][:3].upper()}-{n:03d}", t["grupo"], t["pav"], int(t["dn"]), t["L"],
+                   {"h": "horizontal", "v": "vertical"}.get(t["eixo"], "—"), "—", "—", "",
+                   round(t["a"][2] - zz, 3) if t.get("a") else None, round(t["b"][2] - zz, 3) if t.get("b") else None,
+                   t["origem"], f"{t['como']} · altura: {t['altura']}"])
     # ------------------------------------------------------------ leitura (como foi lido)
     le = wb.create_sheet("Água fria leitura")
     cabecalho(le, ["Item", "Valor", "Detalhe"], [40, 22, 90])
@@ -143,5 +163,45 @@ def abas(wb, dados, cabecalho):
     cob = Counter((t.get("col"), t.get("dn"), t.get("L"), t.get("cod")) for t in af["cobertura_nos_isometricos"])
     for (col, dn, L, cod), n in sorted(cob.items(), key=lambda kv: str(kv[0])):
         le.append([col, f"DN{dn} {L} m" if dn else f"conexão {cod}", f"{n}×"])
+    fon = (af.get("complemento") or {}).get("fontes") or []
+    if fon:
+        r = le.max_row + 2
+        r = _titulo(le, r, "Barrilete, térreo e subsolo: fontes lidas")
+        for f in fon:
+            le.append([f["fonte"], f"{f['horizontais']} horiz. · {f['verticais']} vert.", f"{f['repetidos']} rótulos repetidos no mesmo tubo"])
     for row in le.iter_rows(min_row=2):
         row[2].alignment = Alignment(wrap_text=True, vertical="top")
+
+
+def aba_orcamento(wb, dados, cabecalho):
+    af = (dados.get("hidraulica") or {}).get("agua_fria") or {}
+    o = af.get("orcamento")
+    if not o:
+        return
+    ws = wb.create_sheet("Instalações (B4)")
+    cabecalho(ws, ["Grupo", "Item", "SINAPI", "Descrição SINAPI", "Un", "Quantidade", "Preço unitário (R$)", "Custo (R$)"],
+              [20, 58, 10, 70, 6, 12, 14, 14])
+    r = 2
+    ini = {}
+    for L in o["linhas"]:
+        ini.setdefault(L["grupo"], r)
+        ws.append([L["grupo"], L["item"], str(L["sinapi"]), L["descr"], L["un"], L["qtd"], L["preco"], None])
+        ws.cell(row=r, column=8, value=f"=F{r}*G{r}")
+        for c in (6, 7, 8):
+            ws.cell(row=r, column=c).number_format = "#,##0.00"
+        r += 1
+    fim = r - 1
+    r += 1
+    for g in ini:
+        ws.cell(row=r, column=2, value=f"Subtotal · {g}").font = Font(bold=True)
+        ws.cell(row=r, column=8, value=f'=SUMIF(A2:A{fim},"{g}",H2:H{fim})').number_format = "#,##0.00"
+        r += 1
+    ws.cell(row=r, column=2, value="Total água fria (custo direto, sem BDI)").font = Font(bold=True)
+    c = ws.cell(row=r, column=8, value=f"=SUM(H2:H{fim})")
+    c.number_format = "#,##0.00"
+    c.font = Font(bold=True)
+    r += 2
+    ws.cell(row=r, column=1, value=f"SINAPI {o['mes']} {o['uf']}, {'com' if o['desonerado'] else 'sem'} desoneração. Quantidades do modelo (aba Água fria).").font = Font(italic=True)
+    for p in o["premissas"]:
+        r += 1
+        ws.cell(row=r, column=1, value="• " + p)

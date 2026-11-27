@@ -1029,6 +1029,8 @@ def ler_agua_fria(pdf, dados: dict, log=print) -> dict:
             "trechos": trechos, "curtos": curtos, "conexoes": conexoes, "cobertura_nos_isometricos": cobertura,
             "tabela_projetista": tabela, "avisos": avisos}
     saida["auditoria"] = auditar(saida, dados)
+    log("  barrilete, térreo, subsolo e colunas do prédio:")
+    saida["complemento"] = complementar(doc, dados, saida, log=lambda t: log("  " + t))
     return limpo(saida)
 
 
@@ -1184,6 +1186,25 @@ def conferir(af: dict) -> list[tuple[str, str, str, bool]]:
     banh = [i for i in isos if _comodo(i["titulo"]) == "banheiro" and i.get("f_planta")]
     dif_f = max((abs(i["f_planta"] / i["f_h"] - 1) for i in banh), default=0)
     out.append((G, "Escala horizontal do isométrico: planta × rótulos", f"banheiros: diferença máxima {dif_f:.1%}", dif_f < 0.03))
+    tab = (af.get("tabela_projetista") or {}).get("tubos") or {}
+    comp = (af.get("complemento") or {}).get("trechos", [])
+    if tab and comp:
+        q = Counter()
+        for t in af["trechos"] + af["curtos"] + comp:
+            q[int(t["dn"])] += t["L"]
+        tot_m, tot_t = sum(q.values()), sum(tab.values())
+        difs = ", ".join(f"DN{k} {q.get(int(k), 0) - v:+.2f} m" for k, v in sorted(tab.items(), key=lambda kv: int(kv[0])))
+        out.append((G, "Tubos: modelo × tabela do projetista",
+                    f"{tot_m:.2f} m × {tot_t:.2f} m ({tot_m / tot_t - 1:+.1%}) · {difs}", abs(tot_m / tot_t - 1) < 0.02))
+        cods = Counter(c["cod"] for c in af["conexoes"])
+        for cs in (af["complemento"].get("codigos_plantas") or {}).values():
+            cods.update(cs)
+        tb = {k: sum(x["qtd"] for x in v) for k, v in {**af["tabela_projetista"]["conexoes"], **af["tabela_projetista"]["registros"]}.items()}
+        iguais = [k for k in tb if cods.get(k, 0) == tb[k]]
+        dif = {k: cods.get(k, 0) - tb[k] for k in tb if cods.get(k, 0) != tb[k]}
+        out.append((G, "Conexões e registros: modelo × tabela do projetista",
+                    f"{len(iguais)} de {len(tb)} códigos iguais; diferenças: " + ", ".join(f"{k} {int(v):+d}" for k, v in sorted(dif.items())),
+                    len(iguais) >= 0.6 * len(tb)))
     au = af.get("auditoria")
     if au:
         r = au["resumo"]
@@ -1192,3 +1213,206 @@ def conferir(af: dict) -> list[tuple[str, str, str, bool]]:
                     f"{r['verticais']} verticais ({r['verticais em vedação']} em vedação, {r['verticais em estrutural']} em estrutural) · "
                     f"{r['conflitos']} conflitos (rasgo horizontal em estrutural, graute, verga/contraverga)", r["conflitos"] == 0))
     return out
+
+
+# ----------------------------------------------------------------------------------------------
+# Barrilete, alimentação, extravasor, térreo e subsolo: plantas (horizontais) + isométricos (verticais)
+# ----------------------------------------------------------------------------------------------
+def _colineares(s1, s2, tol=1.5):
+    a1, a2 = _ang(s1), _ang(s2)
+    da = abs(a1 - a2)
+    if min(da, 180 - da) > 3:
+        return False
+    return dist_ps(s2[0], (s1[0], (s1[0][0] + (s1[1][0] - s1[0][0]) * 50, s1[0][1] + (s1[1][1] - s1[0][1]) * 50))) < tol * 3 and \
+        abs(((s2[0][0] - s1[0][0]) * -(s1[1][1] - s1[0][1]) + (s2[0][1] - s1[0][1]) * (s1[1][0] - s1[0][0])) / max(math.dist(*s1), 1e-9)) < tol
+
+
+def _unicos_por_tubo(casa, segs, esc=None):
+    """Um trecho por tubo: rótulo repetido no mesmo tubo desenhado conta uma vez. Com 'esc' (pt/m), dois
+    rótulos iguais em pedaços colineares do mesmo tubo (o esqueleto quebra o tubo onde outra linha cruza)
+    também contam uma vez, se os pedaços juntos cabem no comprimento do rótulo."""
+    vistos, out, rep = {}, [], 0
+    for ro, j, como, d in casa:
+        if j is None:
+            out.append((ro, j, como))
+            continue
+        chave = (ro["dn"], ro["L"])
+        dup = False
+        for jj in vistos.get(chave, []):
+            if jj == j:
+                dup = True
+            elif esc and _colineares(segs[jj], segs[j]):
+                pts = [*segs[jj], *segs[j]]
+                vx, vy = segs[jj][1][0] - segs[jj][0][0], segs[jj][1][1] - segs[jj][0][1]
+                n = math.hypot(vx, vy) or 1e-9
+                proj = [((x - pts[0][0]) * vx + (y - pts[0][1]) * vy) / n for x, y in pts]
+                if max(proj) - min(proj) <= ro["L"] * esc * 1.1 + 10:
+                    dup = True
+            if dup:
+                break
+        if dup:
+            rep += 1
+            continue
+        vistos.setdefault(chave, []).append(j)
+        out.append((ro, j, como))
+    return out, rep
+
+
+def rede_da_planta(pg, caixa, T, m_pt_planta):
+    """Tubos de uma planta (x, y na arquitetura) com rótulo. Tubo desenhado bem mais curto que o rótulo
+    é vertical (ou quase): vai para a lista de verticais."""
+    esc = 1.0 / m_pt_planta                            # pt por metro na planta
+    tx = [t for t in textos(pg) if dentro(t["c"], caixa)]
+    a = render(pg, caixa)
+    segs, _, _ = segmentos(a, caixa)
+    rots, _ = rotulos(tx)
+    casa = casar_rotulos(rots, segs, linhas_finas(pg, caixa), esc=esc)
+    uni, rep = _unicos_por_tubo(casa, segs, esc=esc)
+    s, tx_, ty_ = T
+    conv = lambda P: [round(s * P[0] + tx_, 2), round(s * P[1] + ty_, 2)]
+    horiz, vert = [], []
+    for ro, j, como in uni:
+        Ld = math.dist(*segs[j]) / esc if j is not None else 0.0
+        item = {"dn": ro["dn"], "L": ro["L"], "como": como, "rotulo": conv(ro["c"]), "desenho_m": round(Ld, 3)}
+        if j is not None and Ld >= 0.6 * ro["L"] - 0.05:
+            item.update(a=conv(segs[j][0]), b=conv(segs[j][1]))
+            horiz.append(item)
+        else:
+            vert.append(item)
+    cods = Counter(t["t"] for t in tx if RX_COD.match(t["t"]) and t["size"] < 9)
+    return {"horizontais": horiz, "verticais": vert, "repetidos": rep, "codigos": dict(cods)}
+
+
+def verticais_do_isometrico(pg, caixa, excl):
+    """Rótulos dos tubos verticais de um isométrico verdadeiro (barrilete, salão), um por tubo."""
+    v = ler_vista(pg, caixa, textos(pg), excl)
+    uni, rep = _unicos_por_tubo(v["rotulos"], v["segs"], esc=(v["esc"] or 100) * 1.25)
+    out = []
+    for ro, j, como in uni:
+        if j is None:
+            continue
+        out.append({"dn": ro["dn"], "L": ro["L"], "como": como, "vertical": abs(abs(_ang(v["segs"][j])) - 90) < 3})
+    return out, v["titulo"], rep
+
+
+def complementar(doc, dados, af, log=print):
+    """Acrescenta à rede o que não está nas prumadas dos apartamentos: barrilete (planta da cobertura),
+    térreo e subsolo (plantas), alimentação e extravasor, e os tubos verticais que só aparecem nos
+    isométricos (descidas do barrilete, salão de festas, hidrômetro). Cada tubo uma vez:
+      - horizontais: planta (rótulo repetido no mesmo tubo conta uma vez);
+      - verticais: o maior número de vezes que o mesmo (DN, comprimento) aparece numa fonte
+        (planta ou isométrico), por andar/sistema — o mesmo tubo aparece em mais de uma vista."""
+    vistas_arq = {v["titulo"]: v for v in dados["vistas"]}
+    niveis = af["niveis"]
+    extra, fontes = [], []
+    planas = {}
+    for p in af["plantas"]:
+        if p["pavimento"] not in ("Cobertura", "Pavimento Térreo", "Sub-Solo"):
+            continue
+        pg = doc[p["pagina"] - 1]
+        cx = next(q["caixa"] for q in plantas(pg, textos(pg), NOMES_PLANTA) if q["pavimento"] == p["pavimento"])
+        va = vistas_arq.get(p["pavimento"], vistas_arq["5ºPavimento"])
+        r = rede_da_planta(pg, cx, (p["escala"], *p["desloc"]), va["m_por_pt"] * p["escala"])
+        r["vista"] = va["id"]
+        planas[p["pavimento"]] = r
+        fontes.append({"fonte": f"planta {p['pavimento']} (pág. {p['pagina']})", "horizontais": len(r["horizontais"]),
+                       "verticais": len(r["verticais"]), "repetidos": r["repetidos"], "codigos": r["codigos"]})
+    # isométricos verdadeiros (barrilete, salão de festas, hidrômetro)
+    iso_vert, iso_hor = {}, {}
+    for pg in doc:
+        tx = textos(pg)
+        tits = [t["t"] for t in tx if t["size"] > 14 and (t["t"].startswith("Barrilete") or t["t"] in ("Salão de Festas", "Hidrômetro"))]
+        if not tits:
+            continue
+        tabs = regioes_tabela(tx)
+        carimbo = [t["r"] for t in tx if t["t"].startswith("CUIDADOS DE EXECU")]
+        excl = list(tabs) + [(c[0] - 5, c[1] - 12, 1e5, 1e5) for c in carimbo]
+        for t in tx:
+            if t["size"] > 14 and t["t"] in tits:
+                # a vista é a folha toda menos tabelas e carimbo; no salão/hidrômetro, cada um no seu lado
+                if t["t"] == "Hidrômetro":
+                    cx = (0, t["r"][1] - 520, t["r"][2] + 120, t["r"][3])
+                elif t["t"] == "Salão de Festas":
+                    cx = (420, 60, pg.rect.width - 40, t["r"][3])
+                else:
+                    cx = (40, 40, pg.rect.width - 40, pg.rect.height - 40)
+                todos, titulo, rep = verticais_do_isometrico(pg, cx, excl)
+                iso_vert[t["t"]] = [x for x in todos if x["vertical"]]
+                iso_hor[t["t"]] = [x for x in todos if not x["vertical"]]
+                fontes.append({"fonte": f"isométrico {t['t']} (pág. {pg.number + 1})", "horizontais": len(iso_hor[t["t"]]),
+                               "verticais": len(iso_vert[t["t"]]), "repetidos": rep})
+    # Contagem, cada tubo uma vez (rótulo repetido no mesmo tubo já saiu em cada vista):
+    #  A. horizontais: os da planta, com posição;
+    #  B. verticais (< 3 m): o maior número de vezes que o (DN, comprimento) aparece como vertical numa vista
+    #     (planta ou isométrico) do grupo;
+    #  C. horizontais que só o isométrico mostra: o que passa do que a planta já tem (horizontal ou vertical);
+    #  D. colunas que atravessam o prédio (>= 3 m: alimentação, extravasor, AF-13): uma vez no prédio, se
+    #     ainda não entraram pelas prumadas dos apartamentos ou pela planta.
+    ja_aptos = Counter((t["dn"], t["L"]) for t in af["trechos"] + af["curtos"])
+    todos_planas = Counter((x["dn"], x["L"]) for r in planas.values() for x in r["horizontais"] + r["verticais"])
+    hor_planas = Counter((x["dn"], x["L"]) for r in planas.values() for x in r["horizontais"])
+    grupos = {"Cobertura": (["Cobertura"], [k for k in iso_vert if k.startswith("Barrilete")]),
+              "Térreo e subsolo": (["Pavimento Térreo", "Sub-Solo"], [k for k in iso_vert if k in ("Salão de Festas", "Hidrômetro")])}
+    longas, fonte_longa = set(), {}
+    for nome, lst in [(f"planta {k}", v["verticais"]) for k, v in planas.items()] + \
+                     [(f"isométrico {k}", v) for k, v in iso_vert.items()] + [(f"isométrico {k}", v) for k, v in iso_hor.items()]:
+        for x in lst:
+            k = (x["dn"], x["L"])
+            if x["L"] >= 3.0 and not ja_aptos.get(k) and not hor_planas.get(k) and k not in longas:
+                longas.add(k)
+                fonte_longa[k] = nome
+    for g, (pls, isos) in grupos.items():
+        plan_all = Counter((x["dn"], x["L"]) for p in pls if p in planas for x in planas[p]["horizontais"] + planas[p]["verticais"])
+        # A
+        for pav in pls:
+            r = planas.get(pav)
+            if not r:
+                continue
+            # premissa: barrilete 10 cm sobre a laje; térreo a 2,50 m (forro); subsolo sob a laje do térreo
+            z = {"Cobertura": niveis["Cobertura"] + 0.10, "Pavimento Térreo": niveis["Pavimento Térreo"] + 2.50}.get(pav, niveis["Pavimento Térreo"] - 0.30)
+            for h in r["horizontais"]:
+                extra.append({"grupo": g, "pav": pav, "dn": h["dn"], "L": h["L"], "a": [*h["a"], round(z, 3)], "b": [*h["b"], round(z, 3)],
+                              "vista": r["vista"], "eixo": "h", "origem": f"planta {pav}", "como": h["como"], "altura": "premissa"})
+        # B
+        vert, fonte_v = Counter(), {}
+        fontes_v = [(f"planta {p}", Counter((x["dn"], x["L"]) for x in planas[p]["verticais"])) for p in pls if p in planas] + \
+                   [(f"isométrico {k}", Counter((x["dn"], x["L"]) for x in iso_vert.get(k, []))) for k in isos]
+        for nome, c in fontes_v:
+            for k, n in c.items():
+                if k[1] < 3.0 and n > vert[k]:
+                    vert[k], fonte_v[k] = n, nome
+        if g == "Cobertura":                     # descida da coluna sob o barrilete: já está na prumada
+            for k in list(vert):
+                if k[1] in (0.61, 0.62):
+                    vert[k] -= min(vert[k], ja_aptos.get(k, 0))
+        for k, n in sorted(vert.items()):
+            for _ in range(n):
+                extra.append({"grupo": g, "pav": pls[0], "dn": k[0], "L": k[1], "eixo": "v", "origem": fonte_v[k], "como": "vertical",
+                              "altura": "sem posição (quantitativo)"})
+        # C
+        so_iso, fonte_h = Counter(), {}
+        for k_ in isos:
+            c_ = Counter((x["dn"], x["L"]) for x in iso_hor.get(k_, []))
+            for k, n in c_.items():
+                if k[1] >= 3.0:
+                    continue
+                falta = n - plan_all.get(k, 0) - vert.get(k, 0)
+                if falta > so_iso[k]:
+                    so_iso[k], fonte_h[k] = falta, f"isométrico {k_}"
+        for k, n in sorted(so_iso.items()):
+            for _ in range(n):
+                extra.append({"grupo": g, "pav": pls[0], "dn": k[0], "L": k[1], "eixo": "h", "origem": fonte_h[k] + " (sem rótulo na planta)",
+                              "como": "só no isométrico", "altura": "sem posição (quantitativo)"})
+    # D
+    for k in sorted(longas):
+        # coluna do prédio = vertical que atravessa andares (>= 10 m: alimentação, extravasor, AF-13)
+        no_barrilete = k[1] < 10 and ("Cobertura" in fonte_longa[k] or "Barrilete" in fonte_longa[k])
+        extra.append({"grupo": "Cobertura" if no_barrilete else "Colunas do prédio", "pav": "Cobertura" if no_barrilete else "Sub-Solo",
+                      "dn": k[0], "L": k[1], "eixo": "v", "origem": fonte_longa[k], "como": "coluna" if not no_barrilete else "vertical",
+                      "altura": "sem posição (quantitativo)"})
+    q = Counter()
+    for t in extra:
+        q[(t["grupo"], t["dn"])] += t["L"]
+    for (g, dn), v in sorted(q.items()):
+        log(f"  {g}: DN{dn} {v:.2f} m")
+    return {"trechos": extra, "fontes": fontes, "codigos_plantas": {k: v["codigos"] for k, v in planas.items()}}
