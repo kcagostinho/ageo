@@ -29,7 +29,7 @@ Status em 27/11/2026: **3D-1 a 3D-4 feitas.**
     - espelho = desnível dos cortes ÷ 18 (15,3 cm nos tipos; 16,4 cm do térreo ao 1º);
     - o piso do ambiente fica só na parte em nível, e a laje de cima tem furo apenas sobre os lances;
     - pontos a conferir com o arquiteto: a planta anota e = 16 cm (18 × 16 = 2,88 m), mas o corte dá 2,75 m entre pisos; Blondel 2e + p = 58,6 cm (a NBR 9077 pede 63 a 64 cm).
-- Gerador: `leitor/leitor/saida_3d.py`; saída `modelo3d.html`, arquivo único de ~1,5 MB que funciona sem internet.
+- Gerador: `leitor/leitor/saida_3d.py` com `leitor/leitor/web/`. A saída é `obra.html` (até 27/11/2026 era `modelo3d.html`): arquivo único de ~2 MB que funciona sem internet; só a fonte vem da internet, e sem ela a página usa a fonte do sistema.
 - three.js 0.160 com OrbitControls, num pacote embutido em `leitor/leitor/vendor` (licença MIT).
 - Decisões aplicadas: arquivo HTML; térreo e subsolo incluídos; muros escondidos por padrão.
 - Premissas a confirmar:
@@ -77,7 +77,7 @@ Status em 27/11/2026: **3D-1 a 3D-4 feitas.**
 **Fluxo de dados** (tudo gerado pelo leitor, como as outras páginas):
 
 ```
-obra.json ──► saida_3d.py ──► modelo3d.html (arquivo único: three.js + dados embutidos)
+obra.json ──► saida_3d.py + web/ ──► obra.html (arquivo único: three.js + dados embutidos)
    │            ├─ registro dos andares (deslocamento pelo núcleo)
    │            ├─ níveis z (cortes)
    │            ├─ pt → metros; eixo y do PDF → eixo z da cena
@@ -135,3 +135,27 @@ obra.json ──► saida_3d.py ──► modelo3d.html (arquivo único: three.j
 - Não há projeto estrutural. Lajes e transição são representadas de forma simples; pilares só onde aparecem na planta.
 - A paginação é estimativa (premissas da B2/B3) e o 3D mostra exatamente essa estimativa.
 - Paredes inclinadas (muros) ainda não são lidas como peças contínuas.
+
+## 7. Página da obra (28/11/2026)
+
+O 3D virou uma tela da página da obra (`obra.html`). Ela junta o que antes estava em páginas e abas soltas.
+
+- **Estrutura:** dois eixos que não se misturam.
+  - O **menu** diz o que ver: visão geral, 3D, plantas, quantitativos, orçamento, conferência, documentos e guia visual.
+  - As **disciplinas** dizem de qual frente:
+    - arquitetura, parte cinza e hidráulica, com olho de liga/desliga e subcamadas;
+    - incêndio e elétrica já aparecem, como "próximo" e "sem projeto".
+- **No 3D:**
+  - "colorir por" substitui os antigos modos: material, uso dos ambientes, blocos (paginação) e custo;
+  - ligar a hidráulica deixa paredes e lajes como contexto translúcido (o antigo modo "Instalações");
+  - os cortes e o afastamento dos andares ficam num painel "Cortes" no computador e na folha "Camadas" no celular.
+- **Cores:**
+  - marca AGEO: azul nas ações e laranja no selecionado e nas pendências;
+  - disciplinas na cor do material na obra: bloco de concreto, concreto armado, PVC marrom (água fria), PVC branco (esgoto).
+  - Os tons pastel e o vermelho/azul chapados de antes saíram.
+- **Celular:**
+  - abas embaixo, 3D em tela cheia e pavimentos numa coluna à direita;
+  - ficha do elemento num cartão que abre por baixo;
+  - tabelas viram lista.
+- **Nomes dos ambientes:** são etiquetas em HTML sobre o 3D, desligadas por padrão. Quando ligadas, só aparecem as que cabem sem sobrepor (as dos ambientes maiores primeiro).
+- **Ainda não é aplicativo** (instalável, offline): fica para quando entrar o projeto elétrico.

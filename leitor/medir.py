@@ -767,8 +767,8 @@ def main():
     SP.pagina(dados, a.pdf, a.saida / "paredes.html")
     if dados.get("paginacao", {}).get("vista_detalhe"):
         SPG.pagina(dados, a.pdf, a.saida / "paginacao.html")
-    S3D.gerar(dados, a.saida / "modelo3d.html")
     conf = CONF.checar(dados)
+    S3D.gerar(dados, a.saida / "obra.html", conf)          # página única: visão geral, 3D, plantas, quantitativos, orçamento
     falhas = [c for c in conf if not c[3]]
     print(f"conferência: {len(conf) - len(falhas)} de {len(conf)} verificações ok")
     for g, item, res, _ in falhas:

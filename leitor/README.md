@@ -18,7 +18,7 @@ Saídas em `--saida`:
 | `conferencia.html` | Prancha com cada ambiente desenhado e colorido pelo status, para conferência visual |
 | `paredes.html` | Modelo de paredes: cada parede com eixo e espessura, colorida por tipo (estrutural, vedação…). Clique para reclassificar e baixe os ajustes |
 | `paginacao.html` | Paginação estimada: elevação de cada parede bloco a bloco, famílias 29 e 39, com comparação de peças e cortes |
-| `modelo3d.html` | Modelo 3D (three.js embutido): andares alinhados pelo núcleo, paredes por tipo com vãos, ambientes clicáveis, **paginação em blocos 3D** (cintas, vergas, contravergas e pontos de graute em destaque), esquadrias, lajes, cobertura com telhados e reservatórios, muros, filtros, cortes horizontal e vertical, resumo por andar, **mapa de calor do custo (B4)** e modo **Instalações** (água fria e esgoto: tubos por DN, conexões e registros, filtros por sistema, clique com DN, comprimento e prancha de origem) |
+| `obra.html` | **Página da obra** (abre no computador e no celular; three.js embutido). Menu lateral no computador e abas embaixo no celular: **Visão geral** (custo medido, R$/m², CUB, situação de cada disciplina e pontos para os projetistas), **Modelo 3D**, **Plantas** (as páginas 2D abaixo, em abas), **Quantitativos** (modelo × tabela do projetista), **Orçamento** por etapa (parte cinza, instalações hidráulicas, incêndio, elétrica; até o item SINAPI), **Conferência**, **Documentos** e **Guia visual**. No 3D: pavimentos em coluna, disciplinas com olho (arquitetura, parte cinza, hidráulica), colorir por material, uso dos ambientes, blocos (paginação) ou custo, nomes dos ambientes com liga/desliga, cortes e ficha do elemento selecionado |
 | `obra.json` | Tudo acima com os polígonos, para as próximas fases (lacunas, EAP) |
 
 ## Como mede
@@ -129,6 +129,29 @@ Saídas em `--saida`:
       - declividades contra a NBR 8160.
     - **Peça desenhada em todos os andares e rotulada só em alguns:** conta com o rótulo do andar vizinho, marcada como "inferido". Na água fria, o mesmo vale para o ponto de consumo sem etiqueta.
     - **A tabela da prancha** é a moldura desenhada, não o texto mais uma margem. A margem engolia códigos de conexão encostados nela.
+22. **Página da obra** (`saida_3d.py` + `leitor/web/`): `obra.html` junta o que antes estava em páginas soltas.
+    - **Arquivos:**
+      - `web/obra.html`: casca, estilos e interface;
+      - `web/cena3d.js`: montagem da cena;
+      - `web/ui3d.js`: ficha, legenda, resumo e seleção;
+      - `web/telas.js`: telas de dados.
+      - `saida_3d.painel()` monta os dados das telas, e `gerar()` junta tudo num arquivo só.
+    - **Marca AGEO:**
+      - azul #1C48A4 (Shark Blue) para navegação e ações;
+      - laranja #EB6D4E (Lava Orange), pouco: item ativo, pendências e o elemento selecionado no 3D;
+      - logos em `web/ageo-logo-*.png`.
+    - **Disciplinas na cor do material que vai para a obra:**
+      - bloco de concreto: estrutural mais escuro, vedação mais clara;
+      - concreto armado;
+      - PVC soldável marrom na água fria e PVC branco no esgoto;
+      - tubo vermelho de incêndio e eletroduto amarelo, para as próximas disciplinas.
+    - **Celular primeiro:**
+      - 3D em tela cheia;
+      - pavimentos numa coluna à direita;
+      - folha "Camadas" com disciplinas, colorir por, vista, nomes, cortes e legenda;
+      - ficha do elemento num cartão que abre por baixo;
+      - tabelas viram lista.
+    - **Nomes dos ambientes:** desligados por padrão. Quando ligados, só aparecem os que cabem sem sobrepor.
 ## Limitações conhecidas
 
 - Depende de PDF vetorial com camadas no padrão do CAD (nomes AIA: `A-WALL`, `A-DOOR`…). PDF escaneado não funciona.
