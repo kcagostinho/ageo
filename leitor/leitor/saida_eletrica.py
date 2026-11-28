@@ -89,7 +89,7 @@ def abas(wb, dados, cabecalho):
     r = 2
     for nome in sorted(ele["quadros"], key=lambda k: (k[:2], int(re.sub(r"\D", "", k) or 0))):
         for c in ele["quadros"][nome]["circuitos"]:
-            tab = {**c["il"], **c["to"]}
+            tab = {int(w): k for w, k in list(c["il"].items()) + list(c["to"].items())}     # no obra.json a chave vira texto
             try:
                 n = int(c["n"])
             except (TypeError, ValueError):

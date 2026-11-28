@@ -1347,10 +1347,8 @@ def conferir(ele):
         nq += 1
         tab = Counter()
         for c in q["circuitos"]:
-            for w, k in c["il"].items():
-                tab[(int(c["n"]), w)] += k
-            for w, k in c["to"].items():
-                tab[(int(c["n"]), w)] += k
+            for w, k in list(c["il"].items()) + list(c["to"].items()):
+                tab[(int(c["n"]), int(w))] += k          # int(): no obra.json a chave vira texto
         mod = Counter()
         for p in pts_qd.get(nome, []):
             w = p.get("pot") or (100 if p["tipo"] in ("luminaria", "tomada_baixa") else None)

@@ -558,8 +558,10 @@ def planilha(dados: dict, destino: Path):
     CONF.aba(wb, CONF.checar(dados), _cabecalho)
     ordem_abas = ["Leia-me", "Conferência", "Resumo", "Orçamento (B4)", "Insumos (B3)", "Preços (B4)", "Custo por pavimento (B4)", "Resumo quantitativos", "Resumo paredes", "Paginação", "Quantitativos", "Paredes",
                   "Paginação por parede", "Ambientes", "Esquadrias", "Instalações (B4)", "Água fria", "Esgoto", "Água fria por coluna",
-                  "Água fria trechos", "Esgoto trechos", "Água fria leitura", "Esgoto leitura", "Premissas", "Calibração"]
-    ordem_abas = [n for n in ordem_abas if n in wb.sheetnames]
+                  "Água fria trechos", "Esgoto trechos", "Água fria leitura", "Esgoto leitura", "Elétrica", "Elétrica (orçamento)",
+                  "Elétrica - quadros", "Elétrica - pontos", "Elétrica - eletrodutos", "Premissas", "Calibração"]
+    # aba que não está na lista vai para o fim (nunca some da planilha)
+    ordem_abas = [n for n in ordem_abas if n in wb.sheetnames] + [n for n in wb.sheetnames if n not in ordem_abas]
     wb._sheets = [wb[n] for n in ordem_abas]
     wb.save(destino)
 
