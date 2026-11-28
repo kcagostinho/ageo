@@ -13,7 +13,11 @@ Simbologia (legenda de cada prancha):
   - interruptor: círculo de 13,5 pt a 1,10 m — hachurado = paralelo, com traço = 2 teclas; dois círculos juntos =
     2 simples + 1 paralelo (3 teclas); sensor de presença a 2,20 m;
   - quadro de distribuição: retângulo de 10,8 × 32,6 pt meio cheio, a 1,50 m;
-  - caixa de passagem 100×100×80: quadrado com X (CXnn); prumadas com seta e bolinha.
+  - caixa de passagem 100×100×80: quadrado com X (CXnn); prumadas com seta e bolinha;
+  - térreo: caixas de medição (QMnn, ampulheta, 1,60 m), entrada de serviço (ALx), alimentadores pontilhados
+    (AL → QM e QM → caixa da prumada → QD), tomada 20 A do portão (círculo com M/1F, 0,30 m);
+  - ponto de força do elevador: círculo com potência ≥ 1000 W e "ELM" (F+N+T a 0,30 m).
+Saída (ler_eletrica): plantas registradas, prumadas, alimentadores, listas, quadros de carga, rede 3D e conferência.
 """
 from __future__ import annotations
 
@@ -32,7 +36,8 @@ ALTURAS = {"tomada_baixa": 0.30, "tomada_media": 1.10, "tomada_alta": 2.20, "chu
 # premissas do 3D (não estão no projeto)
 Z_LAJE = 0.075          # eletroduto cheio (teto): no meio da laje de 15 cm acima do pé-direito
 Z_PISO = -0.05          # eletroduto pontilhado (alimentador): no piso (contrapiso/laje de baixo)
-H_CX = 0.30             # caixa de passagem da prumada: altura do centro acima do piso
+H_CX = 2.00             # caixa de passagem da prumada: altura acima do piso (premissa: é a altura que fecha os
+                        # eletrodutos de 2" e 3" do térreo com a lista do projetista)
 NOMES_PLANTA = {"1ºPavimento": "1ºPavimento", "2ºPavimento": "2ºPavimento", "3ºPavimento": "3ºPavimento",
                 "4ºPavimento": "4ºPavimento", "5ºPavimento": "5ºPavimento", "Térreo": "Pavimento Térreo", "Subsolo": "Sub-Solo"}
 
@@ -490,6 +495,7 @@ def rede(P, EL, PT):
 # Leitura completa: todas as plantas, registradas sobre a arquitetura
 # ----------------------------------------------------------------------------------------------
 RX_DIAM = re.compile(r'ø\s*([\d.,/ ]+)"')
+AFAST_ROT = 8.3         # afastamento do rótulo de bitola ao seu eletroduto (pt), medido no feixe do térreo
 POL = {'1/2': 0.5, '3/4': 0.75, '1': 1.0, '1.1/4': 1.25, '1.1/2': 1.5, '2': 2.0, '2.1/2': 2.5, '3': 3.0, '4': 4.0}
 
 
@@ -510,13 +516,19 @@ def _rotulos_diam(T):
 
 
 def _diametros(rd, tubos_pts, n_ramais, lim=20.0):
-    """Cada rótulo ø vai para UM eletroduto: o mais perto, escrito paralelo a ele (o rótulo acompanha o traço).
-    Bitola de alimentador (≥ 1.1/2") prefere o traço pontilhado e bitola de ramal prefere o traço cheio quando os dois
-    passam juntos (o rótulo do alimentador do QD fica entre ele e o ramal do ar-condicionado).
+    """Rótulos ø → eletrodutos. Custo de um rótulo num traço: quanto a distância foge do afastamento padrão do
+    projetista (8,3 pt, ou em cima do traço) + desalinhamento (o rótulo é escrito paralelo ao traço) + lado (o texto
+    fica pendurado embaixo do traço: rótulo entre dois traços paralelos é do de cima) + tipo (bitola de
+    alimentador, ≥ 1.1/2", prefere o pontilhado; de ramal, o cheio).
+    Casamento ótimo um a um (no feixe de alimentadores do térreo há um rótulo por traço e os rótulos ficam entre
+    traços vizinhos); rótulo que sobra vai para o traço mais barato se ele estiver sem rótulo ou com a mesma bitola.
     Devolve {índice do eletroduto: diâmetro}."""
-    out = {}
-    for v, c, dv in rd:
-        melhor = None
+    import numpy as np
+    from scipy.optimize import linear_sum_assignment
+    if not rd or not tubos_pts:
+        return {}
+    C = np.full((len(rd), len(tubos_pts)), 1e6)
+    for il, (v, c, dv) in enumerate(rd):
         grande = POL[v] >= 1.5
         for k, pts in enumerate(tubos_pts):
             pena = 10.0 if (k >= n_ramais) != grande else 0.0
@@ -526,11 +538,23 @@ def _diametros(rd, tubos_pts, n_ramais, lim=20.0):
                     continue
                 L = math.dist(a, b) or 1
                 sen = abs(((b[0] - a[0]) * dv[1] - (b[1] - a[1]) * dv[0]) / L)
-                custo = d + 30 * sen + pena
-                if melhor is None or custo < melhor[0]:
-                    melhor = (custo, k)
-        if melhor:
-            out[melhor[1]] = v
+                t = max(0.0, min(1.0, ((c[0] - a[0]) * (b[0] - a[0]) + (c[1] - a[1]) * (b[1] - a[1])) / (L * L)))
+                wx, wy = c[0] - (a[0] + t * (b[0] - a[0])), c[1] - (a[1] + t * (b[1] - a[1]))
+                lado = 6.0 if d > 2.5 and wx * dv[1] - wy * dv[0] > 0 else 0.0
+                C[il, k] = min(C[il, k], min(abs(d - AFAST_ROT), d) + 30 * sen + pena + lado)
+    # colunas extras: o rótulo pode ficar sem traço (custo alto, só se não houver traço livre razoável)
+    nada = np.full((len(rd), len(rd)), 40.0)
+    lin, col = linear_sum_assignment(np.hstack([C, nada]))
+    out, sobra = {}, []
+    for il, k in zip(lin, col):
+        if k < len(tubos_pts) and C[il, k] < 1e5:
+            out[int(k)] = rd[il][0]
+        else:
+            sobra.append(il)
+    for il in sobra:
+        k = int(np.argmin(C[il]))
+        if C[il, k] < 1e5 and out.get(k, rd[il][0]) == rd[il][0]:
+            out[k] = rd[il][0]
     return out
 
 
@@ -807,11 +831,16 @@ def montar_predio(plantas, dados, log=print):
             p["nome"] = nome
             grupos[nome].append((pav, i, xy, p))
     prumadas = []
+    tub = {r["pavimento"]: r["tubos"] for r in ordem}
     for nome, mem in grupos.items():
         mem.sort(key=lambda q: niv[q[0]])
         xy = (st.median(q[2][0] for q in mem), st.median(q[2][1] for q in mem))
         desvio = max(math.dist(xy, q[2]) for q in mem)
-        diam = Counter(q[3].get("diam") for q in mem if q[3].get("diam")).most_common(1)
+        # bitola da prumada: a do alimentador que sai dela para o QD acima do andar mais baixo (no térreo chegam os de 2" e
+        # 3" dos medidores, que só vão até a caixa); prumada das áreas comuns: o rótulo ø ao lado das caixas
+        acima = Counter(t["diam"] for pav, i, _, _ in mem[1:] for t in tub[pav] if i in (t["a"], t["b"]) and t["tipo"] == "alimentador")
+        diam = acima.most_common(1) or Counter(q[3].get("diam") for q in mem[1:] if q[3].get("diam")).most_common(1) \
+            or Counter(q[3].get("diam") for q in mem if q[3].get("diam")).most_common(1)
         prumadas.append({"nome": nome, "xy": [round(xy[0], 3), round(xy[1], 3)], "pavs": [q[0] for q in mem],
                          "desvio_m": round(desvio, 3), "atravessa": all(q[3].get("prumada") for q in mem[1:-1]),
                          "diam": diam[0][0] if diam else None})
@@ -823,7 +852,6 @@ def montar_predio(plantas, dados, log=print):
                 A, B = (r["pavimento"], t["a"]), (r["pavimento"], t["b"])
                 viz[A].append((B, ("t", r["pavimento"], k)))
                 viz[B].append((A, ("t", r["pavimento"], k)))
-    idx = {(pav, i): (pav, i) for nome, mem in grupos.items() for pav, i, _, _ in mem}
     for nome, mem in grupos.items():
         mem.sort(key=lambda q: niv[q[0]])
         for a, b in zip(mem[:-1], mem[1:]):
@@ -922,7 +950,7 @@ def ler_lista(pg, tx=None):
     if not tit:
         return None, []
     pav = NOMES_LISTA.get(tit["t"].split(" - ", 1)[1].strip())
-    x0 = tit["r"][0] - 140
+    x0 = tit["c"][0] - 232          # borda esquerda da moldura da lista (o título fica centrado nela)
     fim = min([t["r"][1] for t in tx if t["r"][1] > tit["r"][3] and t["r"][0] > x0 - 20
                and (t["t"].startswith("Legenda -") or t["t"] == "PROJETO ELÉTRICO")] or [pg.rect.width])
     ts = [t for t in tx if t["r"][0] > x0 and tit["r"][3] < t["o"][1] < fim and abs(t["dir"][0] - 1) < 1e-3]
@@ -1055,14 +1083,21 @@ def rede_3d(ele, dados):
     trechos, pontos, por_pav = [], [], defaultdict(lambda: {"t": [], "p": []})
     alcance = defaultdict(list)                        # prumada -> alturas que ela precisa alcançar
 
-    def add(pav, a, b, diam, tipo, local, origem, contar=True):
-        L = math.dist(a, b)
+    def add(pav, pts, diam, tipo, local, origem, contar=True):
+        """Um eletroduto (polilinha 3D) = um registro; cada segmento vira uma linha do 3D apontando para ele.
+        O comprimento é o do traçado; o desenho 3D usa o traçado simplificado (2 cm de tolerância nas curvas)."""
+        L = sum(math.dist(a, b) for a, b in zip(pts[:-1], pts[1:]))
         if L < 0.005:
             return
-        trechos.append([f"EL-{len(trechos) + 1:05d}", tipo, pav, diam, round(L, 3), origem, "v" if abs(a[2] - b[2]) > 0.9 * L else "h",
-                        local, contar])
-        por_pav[pav]["t"].append([round(a[0], 3), round(a[1], 3), round(a[2], 3), round(b[0], 3), round(b[1], 3), round(b[2], 3),
-                                  DIAMS.index(diam) if diam in DIAMS else 0, len(trechos) - 1])
+        if len(pts) > 2 and len({round(p[2], 4) for p in pts}) == 1:          # traçado horizontal: simplifica em planta
+            z = pts[0][2]
+            pts = [(x, y, z) for x, y in _simplifica([(p[0], p[1]) for p in pts], 0.02)]
+        segs = [(a, b) for a, b in zip(pts[:-1], pts[1:]) if math.dist(a, b) >= 0.002]
+        v = all(abs(a[2] - b[2]) > 0.9 * math.dist(a, b) for a, b in segs)
+        trechos.append([f"EL-{len(trechos) + 1:05d}", tipo, pav, diam, round(L, 3), origem, "v" if v else "h", local, contar])
+        for a, b in segs:
+            por_pav[pav]["t"].append([round(a[0], 3), round(a[1], 3), round(a[2], 3), round(b[0], 3), round(b[1], 3), round(b[2], 3),
+                                      DIAMS.index(diam) if diam in DIAMS else 0, len(trechos) - 1])
 
     for r in ele["plantas"]:
         pav = r["pavimento"]
@@ -1075,7 +1110,7 @@ def rede_3d(ele, dados):
             q = pr_xy[p["nome"]] if p["tipo"] == "cx" and p.get("nome") in pr_xy and len(pr_pavs[p["nome"]]) > 1 else cv(p["xy"])
             xy.append(q)
             if p["tipo"] == "luminaria":
-                zp.append(z0 + h_pd)
+                zp.append(z_teto)                          # caixa octogonal dentro da laje; a luminária fica no forro
             elif p["tipo"] == "cx":
                 zp.append(z0 + H_CX)
             else:
@@ -1103,22 +1138,19 @@ def rede_3d(ele, dados):
             if b is not None:
                 pts[-1] = xy[b]
             origem = f"planta {pav} (pág. {r['pagina']}): eletroduto {'pontilhado (piso)' if local == 'piso' else 'cheio'} ø{t['diam']}\""
-            for u, v in zip(pts[:-1], pts[1:]):
-                add(pav, (u[0], u[1], z), (v[0], v[1], z), t["diam"], t["tipo"], local, origem)
+            add(pav, [(u[0], u[1], z) for u in pts], t["diam"], t["tipo"], local, origem)
             for i in (a, b):                               # descida/subida na parede até a caixa
                 if i is None:
                     continue
                 p = P[i]
-                if p["tipo"] == "cx" and p.get("nome") in pr_xy and len(pr_pavs[p["nome"]]) > 1:
-                    alcance[p["nome"]].append((pav, z))
-                    continue
                 if p["tipo"] == "luminaria" and local == "laje":
                     continue                               # caixa octogonal na própria laje
                 if abs(zp[i] - z) > 0.005:
-                    add(pav, (xy[i][0], xy[i][1], z), (xy[i][0], xy[i][1], zp[i]), t["diam"], "descida", "parede",
+                    add(pav, [(xy[i][0], xy[i][1], z), (xy[i][0], xy[i][1], zp[i])], t["diam"], "descida", "parede",
                         f"{'subida' if zp[i] > z else 'descida'} na parede até {p.get('nome') or p['tipo'].replace('_', ' ')} "
                         f"({zp[i] - z0:.2f} m do piso); altura pela legenda" + ("" if p["tipo"] != "arandela" else " (arandela: premissa 2,00 m)"))
-    # prumadas: vertical na posição da caixa, do ponto mais baixo ao mais alto que ela precisa alcançar
+    # prumadas: vertical na posição das caixas de passagem, de caixa a caixa (os eletrodutos de cada andar sobem ou
+    # descem na parede até a caixa, como nos outros pontos)
     ordem = sorted(niv.items(), key=lambda kv: kv[1])
     for p in ele["prumadas"]:
         zs = [z for _, z in alcance.get(p["nome"], [])]
@@ -1131,15 +1163,318 @@ def rede_3d(ele, dados):
             z1 = ordem[k + 1][1] if k + 1 < len(ordem) else 1e9
             a_, b_ = max(lo, zf), min(hi, z1)
             if b_ - a_ > 0.005:
-                add(pav, (x, y, a_), (x, y, b_), diam, "prumada", "prumada",
+                add(pav, [(x, y, a_), (x, y, b_)], diam, "prumada", "prumada",
                     f"prumada {p['nome']} (caixas de passagem de {p['pavs'][0]} a {p['pavs'][-1]})")
     return {"trechos": trechos, "pontos": pontos, "por_pav": dict(por_pav), "diams": DIAMS, "tipos": TIPOS_PT}
 
 
-def quant_modelo(r3d):
-    """Metros de eletroduto do modelo por pavimento, diâmetro e onde está (laje, piso, parede, prumada)."""
-    q = defaultdict(float)
-    for t in r3d["trechos"]:
-        if t[8]:
-            q[(t[2], t[3], t[7])] += t[4]
-    return q
+def soltas_3d(r3d, tol=0.01):
+    """Peças soltas no 3D (prédio inteiro): pontas de eletroduto que não encostam em outro eletroduto nem numa
+    caixa, e caixas/pontos que nenhum eletroduto toca. Devolve (pontas soltas, pontos soltos) com exemplos."""
+    import numpy as np
+    from scipy.spatial import cKDTree
+    segs = [(t[0:3], t[3:6], pav) for pav, v in r3d["por_pav"].items() for t in v["t"]]
+    pts = [(p[0:3], pav, p[4]) for pav, v in r3d["por_pav"].items() for p in v["p"]]
+    if not segs:
+        return [], []
+    A = np.array([a for a, _, _ in segs], float)
+    B = np.array([b for _, b, _ in segs], float)
+    AB = B - A
+    L2 = (AB * AB).sum(1)
+    L2[L2 < 1e-12] = 1.0
+
+    def dist_segs(q):
+        t = np.clip(((q - A) * AB).sum(1) / L2, 0, 1)
+        return np.linalg.norm(A + t[:, None] * AB - q, axis=1)
+    ends = np.vstack([A, B])
+    dono = np.concatenate([np.arange(len(segs))] * 2)
+    arv = cKDTree(ends)
+    P = np.array([q for q, _, _ in pts], float) if pts else np.zeros((0, 3))
+    arv_p = cKDTree(P) if len(P) else None
+    soltas = []
+    for i, q in enumerate(ends):
+        if any(dono[j] != dono[i] for j in arv.query_ball_point(q, tol)):
+            continue
+        if arv_p is not None and arv_p.query(q)[0] < tol:
+            continue
+        d = dist_segs(q)
+        d[dono[i]] = 1e9
+        if d.min() < tol:
+            continue
+        soltas.append((segs[dono[i]][2], [round(float(x), 2) for x in q]))
+    soltos = [(pav, r3d["pontos"][i][1], r3d["pontos"][i][7]) for q, pav, i in pts if dist_segs(np.array(q, float)).min() >= tol]
+    return soltas, soltos
+
+
+# ----------------------------------------------------------------------------------------------
+# Conferência: modelo × lista de materiais × quadros de carga
+# ----------------------------------------------------------------------------------------------
+def _contagens(r):
+    """Quantidades do modelo de um pavimento nos termos da lista de materiais."""
+    c = Counter()
+    for p in r["pontos"]:
+        t, sub = p["tipo"], p["sub"] or ""
+        if t == "tomada_baixa":
+            c["tomada 20A" if sub.startswith("20 A") else "tomada universal"] += 1
+        elif t == "tomada_media":
+            c["tomada 10A"] += 1
+        elif t == "tomada_alta":
+            c["placa cega" if sub == "chuveiro" else "tomada 20A"] += 1
+        elif t == "interruptor":
+            c["interruptor " + sub] += 1
+        elif t == "sensor":
+            c["sensor"] += 1
+        elif t == "arandela":
+            c["arandela"] += 1
+        elif t == "luminaria":
+            c[f"luminária {p.get('pot') or 100} W"] += 1
+        elif t == "cx":
+            c["caixa de passagem"] += 1
+        elif t == "quadro":
+            c["caixa de medição" if (p.get("nome") or "").startswith("QM") else "quadro de distribuição"] += 1
+        elif t == "forca":
+            c["ponto de força"] += 1
+    c["caixa 4x2"] = c["tomada universal"] + c["tomada 10A"] + c["tomada 20A"] + c["placa cega"] + c["sensor"] + \
+        sum(v for k, v in c.items() if k.startswith("interruptor"))
+    c["caixa 4x4"] = c["ponto de força"]
+    c["caixa octogonal"] = c["arandela"] + sum(v for k, v in c.items() if k.startswith("luminária"))
+    return c
+
+
+# item da lista de materiais -> chave das contagens do modelo
+ITENS_LISTA = [
+    (r"^4x2\"$", "caixa 4x2", "Caixa PVC 4×2\""), (r"^4x4\"$", "caixa 4x4", "Caixa PVC 4×4\""), (r"^3x3\"$", "caixa octogonal", "Caixa octogonal 3×3\""),
+    (r"^100x100x80", "caixa de passagem", "Caixa de passagem 100×100×80"),
+    (r"Tomada universal", "tomada universal", "Tomada universal 2P+T 10 A (0,30 m)"),
+    (r"Tomada hexagonal .*10A", "tomada 10A", "Tomada 2P+T 10 A (1,10 m)"),
+    (r"Tomada hexagonal .*20A", "tomada 20A", "Tomada 2P+T 20 A (ar-condicionado e portões)"),
+    (r"^Placa cega", "placa cega", "Ponto do chuveiro (placa cega)"),
+    (r"2 simples & paralela", "interruptor 2 simples + paralelo (3 teclas)", "Interruptor 2 simples + paralelo"),
+    (r"paralel[ao] - 1 tecla", "interruptor paralelo 1 tecla", "Interruptor paralelo 1 tecla"),
+    (r"paralel[ao] - 2 teclas", "interruptor paralelo 2 teclas", "Interruptor paralelo 2 teclas"),
+    (r"simples - 1 tecla", "interruptor simples 1 tecla", "Interruptor simples 1 tecla"),
+    (r"simples - 2 teclas", "interruptor simples 2 teclas", "Interruptor simples 2 teclas"),
+    (r"1200W resistivo", "sensor", "Sensor de presença"),
+]
+
+
+def conferir(ele):
+    out = []
+    G = "Elétrica"
+    pl = {r["pavimento"]: r for r in ele["plantas"]}
+    # registro e pontas
+    rms = max((r["rms_mm"] or 0) for r in ele["plantas"])
+    cor = ele.get("correcoes") or {}
+    out.append((G, "Plantas elétricas sobre a arquitetura (registro)",
+                f"{len(pl)} plantas, escala {min(r['escala'] for r in ele['plantas']):.4f}–{max(r['escala'] for r in ele['plantas']):.4f}, "
+                f"maior resíduo {rms:.1f} mm" + "".join(f"; {k}: corrigido pelas prumadas em {math.hypot(*v):.2f} m (a hachura do piso enganou o encaixe)"
+                                                         for k, v in cor.items()), rms < 10))
+    soltas = sum(len(r["soltas"]) for r in ele["plantas"])
+    out.append((G, "Pontas de eletroduto soltas", f"{soltas} pontas sem caixa em {sum(len(r['tubos']) for r in ele['plantas'])} eletrodutos", soltas == 0))
+    sem = []
+    for r in ele["plantas"]:
+        lig = Counter(x for t in r["tubos"] for x in (t["a"], t["b"]) if x is not None)
+        sem += [f"{r['pavimento']}: {p.get('nome') or p['tipo']}" for i, p in enumerate(r["pontos"]) if not lig[i] and not (p["tipo"] == "cx")]
+    out.append((G, "Pontos sem eletroduto", f"{len(sem)}" + (": " + ", ".join(sem[:6]) if sem else " (caixas de prumada só atravessadas não contam)"), not sem))
+    cx_vazia = [f"{r['pavimento']} {p['nome']}" for r in ele["plantas"] for i, p in enumerate(r["pontos"])
+                if p["tipo"] == "cx" and not p.get("prumada") and not any(i in (t["a"], t["b"]) for t in r["tubos"])]
+    if cx_vazia:
+        out.append((G, "Caixa de passagem sem eletroduto e sem prumada", ", ".join(cx_vazia) + ": está na lista, mas nada chega nela; a prumada "
+                    "foi levada até ela no 3D", False))
+    if ele.get("rede3d"):
+        s3, p3 = soltas_3d(ele["rede3d"])
+        out.append((G, "3D: nada solto (eletroduto encosta em eletroduto ou caixa; toda caixa tem eletroduto)",
+                    f"{sum(len(v['t']) for v in ele['rede3d']['por_pav'].values())} trechos no 3D; {len(s3)} pontas soltas, {len(p3)} pontos soltos"
+                    + (": " + ", ".join(f"{a} {b} {c or ''}".strip() for a, b, c in p3[:6]) if p3 else ""), not s3 and not p3))
+    sq = [f"{r['pavimento']}: {p['tipo']}" for r in ele["plantas"] for p in r["pontos"] if p["tipo"] not in ("cx", "quadro", "entrada") and not p.get("quadro")]
+    out.append((G, "Quadro de cada ponto (pela rede, atravessando as prumadas)", f"{sum(1 for r in ele['plantas'] for p in r['pontos'] if p.get('quadro'))} pontos com quadro; "
+                f"{len(sq)} sem", not sq))
+    desv = max(p["desvio_m"] for p in ele["prumadas"])
+    out.append((G, "Prumadas: caixas de passagem uma sobre a outra", f"{len(ele['prumadas'])} prumadas; maior desvio entre andares {desv * 1000:.0f} mm", desv < 0.02))
+    # alimentadores
+    al = ele["alimentadores"]
+    ok_al = [a for a in al if a["qm"] and re.sub(r"\D", "", a["qm"]) == re.sub(r"\D", "", a["qd"])]
+    pn = [x for r in ele["plantas"] for x in r.get("pela_numeracao", [])]
+    out.append((G, "Alimentadores: cada QD chega no QM de mesmo número", f"{len(ok_al)} de {len(al)} (QM → caixa da prumada → QD)"
+                + (f"; no térreo {len(pn)} chegam entre duas caixas vizinhas e valeu a numeração ({', '.join(f'{a}→{c}' for a, _, c in pn)})" if pn else ""),
+                len(ok_al) == len(al)))
+    # lista de materiais × modelo
+    for pav, itens in ele["listas"].items():
+        r = pl.get(pav)
+        if not r:
+            continue
+        c = _contagens(r)
+        dif, n = [], 0
+        for rx, chave, nome in ITENS_LISTA:
+            q = sum(x["qtd"] for x in itens if re.search(rx, x["item"]) and x["un"] == "pç")
+            m = c.get(chave, 0)
+            if q == 0 and m == 0:
+                continue
+            n += 1
+            if abs(q - m) > 0.01:
+                dif.append(f"{nome}: lista {q:g}, modelo {m}")
+        lum = {int(re.match(r"(\d+)", x["item"]).group(1)): x["qtd"] for x in itens if x["sub"] and x["sub"].startswith("Luminária sobrepor")}
+        for w, q in lum.items():
+            n += 1
+            if abs(q - c.get(f"luminária {w} W", 0)) > 0.01:
+                dif.append(f"Luminária {w} W: lista {q:g}, modelo {c.get(f'luminária {w} W', 0)}")
+        ar = sum(x["qtd"] for x in itens if x["sub"] == "Arandela")
+        if ar or c["arandela"]:
+            n += 1
+            if abs(ar - c["arandela"]) > 0.01:
+                dif.append(f"Arandela: lista {ar:g}, modelo {c['arandela']}")
+        qd = sum(x["qtd"] for x in itens if (x["grupo"] or "").startswith("Quadro distrib"))
+        if qd or c["quadro de distribuição"]:
+            n += 1
+            if abs(qd - c["quadro de distribuição"]) > 0.01:
+                dif.append(f"Quadro de distribuição: lista {qd:g}, modelo {c['quadro de distribuição']}")
+        med = sum(x["qtd"] for x in itens if (x["sub"] or "").startswith("Unidade consumidora"))
+        if med:
+            n += 1
+            if abs(med - c["caixa de medição"]) > 0.01:
+                dif.append(f"Caixas de medição individuais: lista {med:g} (21 bifásicas, 1 monofásica, 1 trifásica), planta {c['caixa de medição']} (QM1–QM22)")
+        out.append((G, f"Pontos e peças × lista de materiais ({pav})", f"{n - len(dif)} de {n} itens iguais" + ("; " + "; ".join(dif) if dif else ""), not dif))
+    # quadros de carga × pontos da planta
+    pts_qd = defaultdict(list)
+    for r in ele["plantas"]:
+        for p in r["pontos"]:
+            if p.get("quadro") and p["tipo"] not in ("cx", "quadro", "entrada", "interruptor", "sensor"):
+                pts_qd[p["quadro"]].append(p)
+    dif_q, nq = [], 0
+    for nome, q in sorted(ele["quadros"].items(), key=lambda kv: (kv[0][:2], int(re.sub(r"\D", "", kv[0]) or 0))):
+        if not nome.startswith("QD"):
+            continue
+        nq += 1
+        tab = Counter()
+        for c in q["circuitos"]:
+            for w, k in c["il"].items():
+                tab[(int(c["n"]), w)] += k
+            for w, k in c["to"].items():
+                tab[(int(c["n"]), w)] += k
+        mod = Counter()
+        for p in pts_qd.get(nome, []):
+            w = p.get("pot") or (100 if p["tipo"] in ("luminaria", "tomada_baixa") else None)
+            mod[(p.get("circuito"), w)] += 1
+        if tab != mod:
+            falta = tab - mod
+            sobra = mod - tab
+            dif_q.append(f"{nome}: " + ", ".join([f"circ. {c} {w} W falta {k}" for (c, w), k in falta.items()] +
+                                                 [f"circ. {c} {w} W a mais {k}" for (c, w), k in sobra.items()]))
+    out.append((G, "Pontos por circuito e potência × quadros de carga", f"{nq - len(dif_q)} de {nq} quadros iguais ponto a ponto"
+                + ("; " + "; ".join(dif_q[:4]) if dif_q else ""), not dif_q))
+    # comandos: cada letra de luminária tem um interruptor/sensor com a mesma letra no mesmo quadro
+    sem_cmd = []
+    for r in ele["plantas"]:
+        tem = defaultdict(set)
+        for p in r["pontos"]:
+            if p["tipo"] in ("interruptor", "sensor") and p.get("comando"):
+                tem[p.get("quadro")].update(p["comando"])
+        for p in r["pontos"]:
+            if p["tipo"] in ("luminaria", "arandela") and p.get("comando"):
+                falta = set(p["comando"]) - tem[p.get("quadro")]
+                if falta:
+                    sem_cmd.append(f"{r['pavimento']} {p.get('quadro')} '{''.join(sorted(falta))}'")
+    out.append((G, "Comandos: luminária × interruptor (letra no mesmo quadro)", f"{len(sem_cmd)} letras sem interruptor" + (": " + ", ".join(sem_cmd[:6]) if sem_cmd else ""),
+                not sem_cmd))
+    # andares-tipo e apartamentos iguais
+    assin = {}
+    for r in ele["plantas"]:
+        if r["pavimento"].endswith("ºPavimento"):
+            por = defaultdict(Counter)
+            for p in r["pontos"]:
+                if (p.get("quadro") or "").startswith("QD") and p["quadro"] != "QD22":
+                    por[p["quadro"]][(p["tipo"], p["sub"], p.get("circuito"), p.get("pot"))] += 1
+            assin[r["pavimento"]] = [tuple(sorted(v.items(), key=str)) for _, v in sorted(por.items())]
+    aps = {a for v in assin.values() for a in v}
+    out.append((G, "Apartamentos iguais (pontos por circuito)", f"{sum(len(v) for v in assin.values())} apartamentos em {len(assin)} andares: "
+                + ("todos com os mesmos pontos, circuito a circuito" if len(aps) == 1 else f"{len(aps)} composições diferentes"), len(aps) == 1))
+    # bitola diferente para o mesmo circuito em apartamentos espelhados (rótulo faltando)
+    diam_c = defaultdict(Counter)
+    for r in ele["plantas"]:
+        for t in r["tubos"]:
+            for x, y in ((t["a"], t["b"]), (t["b"], t["a"])):
+                if x is None or y is None:
+                    continue
+                q, p = r["pontos"][x], r["pontos"][y]
+                if q["tipo"] == "quadro" and (q.get("nome") or "").startswith("QD") and q["nome"] not in ("QD21", "QD22") and p.get("circuito"):
+                    diam_c[(p["circuito"], p["tipo"], p["sub"])][(t["diam"], q["nome"])] += 1
+    div = []
+    for k, v in diam_c.items():
+        ds = sorted({d for d, _ in v}, key=lambda d: POL.get(d, 0))
+        if len(ds) > 1:
+            partes = []
+            for d in ds:
+                qs = sorted({q for dd, q in v if dd == d}, key=lambda s: int(s[2:]))
+                partes.append(f"ø{d}\" em {len(qs)} ({', '.join(qs)})")
+            div.append(f"circuito {k[0]} ({k[2] or k[1].replace('_', ' ')}): " + "; ".join(partes))
+    out.append((G, "Bitola igual para o mesmo circuito em todos os apartamentos",
+                "igual em todos" if not div else "; ".join(div) + ". O desenho não traz o rótulo ø nesses apartamentos: o modelo segue o desenho "
+                "(3/4\", bitola padrão); confirmar com o projetista", not div))
+    # eletrodutos × lista, medindo como o projetista (comprimento desenhado + descidas do forro ao topo da caixa)
+    pd = ele["pe_direito"]
+    soma_l, soma_m = Counter(), Counter()
+    for pav, itens in ele["listas"].items():
+        r = pl.get(pav)
+        if not r:
+            continue
+        lst = {x["item"].rstrip('"'): x["qtd"] for x in itens if (x["grupo"] or "").startswith("Eletroduto PVC flex")}
+        q = Counter()
+        for t in r["tubos"]:
+            q[t["diam"]] += t["L"]
+            for i in (t["a"], t["b"]):
+                if i is None or t["tipo"] == "seta":
+                    continue
+                p = r["pontos"][i]
+                if p["tipo"] == "luminaria" or t["tipo"] == "curto" or (p["tipo"] == "cx" and t["tipo"] != "alimentador"):
+                    continue
+                h = H_CX if p["tipo"] == "cx" else (p["h"] if p["h"] is not None else ALTURAS["tomada_baixa"])
+                q[t["diam"]] += (h + 0.05 - 0.05) if t["tipo"] == "alimentador" else (pd.get(pav, 2.6) - h - 0.05)
+        d34 = lst.get("3/4", 0)
+        if d34:
+            e = q["3/4"] / d34 - 1
+            nota = "" if abs(e) < 0.03 else (" — nos andares-tipo a mesma medida bate (±0,3%); a diferença aqui são trechos que a lista conta e "
+                                              "a planta não desenha (provável: descidas às caixas de passagem e pé-direito maior no programa do "
+                                              "projetista). O orçamento usa a lista")
+            out.append((G, f"Eletroduto 3/4\" × lista ({pav})", f"modelo {q['3/4']:.1f} m × lista {d34:.1f} m ({e * 100:+.1f}%), medindo como o projetista: "
+                        "comprimento desenhado + descida do forro até o topo da caixa" + nota, abs(e) < 0.03))
+        for d in [x for x in lst if x not in ("3/4",)]:
+            soma_l[d] += lst[d]
+        for d, v in q.items():
+            if d != "3/4":
+                soma_m[d] += v
+    # bitolas maiores (alimentadores, prumadas, 1"): no prédio todo, com as prumadas do 3D
+    for t in ele.get("rede3d", {}).get("trechos", []):
+        if t[1] == "prumada" and t[8]:
+            soma_m[t[3]] += t[4]
+    for d in sorted(set(soma_l) | set(soma_m), key=lambda d: POL.get(d, 0)):
+        if d not in soma_l:
+            continue
+        e = soma_m[d] / soma_l[d] - 1 if soma_l[d] else 0
+        out.append((G, f"Eletroduto {d}\" × lista (prédio)", f"modelo {soma_m[d]:.1f} m (desenho + descidas + prumadas) × lista {soma_l[d]:.1f} m ({e * 100:+.1f}%)"
+                    + ("" if abs(e) < 0.05 else "; a lista do projetista conta prumadas e chegadas aos quadros de outro jeito: o orçamento usa a lista"),
+                    abs(e) < 0.05))
+    return out
+
+
+def ler_eletrica(pdf, dados, log=print):
+    """Projeto elétrico inteiro: plantas, prédio (prumadas e alimentadores), tabelas, rede 3D e conferência."""
+    doc = pymupdf.open(str(pdf))
+    plantas, listas, quadros = [], {}, {}
+    for pg in doc:
+        tx = textos(pg)
+        r = ler_planta(pg, dados, log)
+        if r:
+            plantas.append(r)
+        pav, itens = ler_lista(pg, tx)
+        if pav:
+            listas[pav] = itens
+        for k, v in ler_quadros_carga(pg, tx).items():
+            quadros[k] = {"pagina": pg.number + 1, "circuitos": [resumo_circuito(c) for c in v["circuitos"]], "total": v["total"]}
+    corr = corrigir_registro(plantas, dados, log)
+    ele = {"pdf": Path(str(pdf)).name, "plantas": plantas, "listas": listas, "quadros": quadros, "correcoes": corr}
+    ele.update(montar_predio(plantas, dados, log))
+    ele["rede3d"] = rede_3d(ele, dados)
+    ele["conferencia"] = conferir(ele)
+    log(f"  elétrica: {sum(len(r['pontos']) for r in plantas)} pontos, {len(ele['prumadas'])} prumadas, {len(ele['alimentadores'])} alimentadores, "
+        f"{len(quadros)} quadros de carga, {len(listas)} listas; conferência {sum(1 for c in ele['conferencia'] if c[3])}/{len(ele['conferencia'])}")
+    return ele

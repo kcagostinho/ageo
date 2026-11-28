@@ -9,7 +9,9 @@ from __future__ import annotations
 import html
 import json
 import math
+import re
 import unicodedata
+from collections import Counter
 from pathlib import Path
 
 import shapely
@@ -220,6 +222,27 @@ def montar(dados: dict) -> dict:
                 return True
             return str(ref[1]).startswith(("TQ", "V")) and P[2] > outra_z        # ventilação acima do telhado
         hid_out["costura"] = costurar(hid_por_pav, lst, terminal)
+    # elétrica: a rede 3D já vem em coordenadas do modelo (m, origem no centro do elevador, z absoluto) e ligada
+    # ponta a ponta (eletroduto -> descida -> caixa; prumadas de caixa a caixa)
+    ele = dados.get("eletrica")
+    ele_out, ele_por_pav = None, {}
+    if ele and ele.get("rede3d"):
+        r3 = ele["rede3d"]
+        origens = list(dict.fromkeys(t[5] for t in r3["trechos"]))
+        oi = {o: i for i, o in enumerate(origens)}
+        ele_por_pav = r3["por_pav"]
+        tot, tab = Counter(), Counter()
+        for t in r3["trechos"]:
+            tot[t[3]] += t[4]
+        for itens in ele["listas"].values():
+            for x in itens:
+                if (x["grupo"] or "").startswith("Eletroduto"):
+                    tab[x["item"].rstrip('"').strip()] += x["qtd"]
+        o = ele.get("orcamento")
+        ele_out = {"trechos": [[t[0], t[1], t[2], t[3], t[4], oi[t[5]], t[6], t[7]] for t in r3["trechos"]], "origens": origens,
+                   "pontos": r3["pontos"], "diams": r3["diams"], "tipos": r3["tipos"], "pdf": ele.get("pdf"),
+                   "tot": {k: _r(v, 2) for k, v in tot.items()}, "tab": {k: _r(v, 2) for k, v in tab.items()},
+                   "orc": o and {"total": o["total"], "grupos": o["grupos"], "mes": o["mes"]}}
     andares = []
     esc_vista = {e["vista"]: e for e in dados.get("escadas", [])}
     pegada_ant = None                                  # projeção da escada do andar de baixo (furo nesta laje)
@@ -408,7 +431,16 @@ def montar(dados: dict) -> dict:
                     tot[x[6]] = tot.get(x[6], 0) + hid_out["trechos"][x[7]][4] * (1 if hid_out["trechos"][x[7]][2] != "prédio" else 0)
             if tot:
                 resumo.append(["Água fria (tubos com posição)", " · ".join(f"DN{k} {val:,.2f} m" for k, val in sorted(tot.items()))])
+        ep = ele_por_pav.get(v["titulo"])
+        ele_andar = None
+        if ep:
+            zz = z[v["titulo"]]
+            # [x, altura acima do piso do andar, profundidade] como o three.js (y para cima)
+            r2 = lambda v: round(float(v), 2)                # centímetro basta para desenhar (a página fica leve)
+            ele_andar = {"t": [[r2(a), r2(c - zz), r2(b), r2(d), r2(f - zz), r2(e), dm, i] for a, b, c, d, e, f, dm, i in ep["t"]],
+                         "p": [[r2(a), r2(c - zz), r2(b), k, i] for a, b, c, k, i in ep["p"]]}
         andares.append({"id": v["id"], "nome": v["titulo"], "ordem": ordem, "z": _r(z[v["titulo"]], 2), "pd": pdv, "pag": pag, "hid": hid_andar,
+                        "ele": ele_andar,
                         "ambientes": amb_out, "paredes": par_out, "laje": laje_out, "escada": escada_out,
                         "resumo": [[k, val.replace(",", "X").replace(".", ",").replace("X", ".")] for k, val in resumo]})
 
@@ -507,7 +539,7 @@ def montar(dados: dict) -> dict:
                  "areas": {k: _r(v, 2) for k, v in orc["areas"].items()},
                  "cub": cub and {"padrao": cub["padrao"], "mes": cub["mes"], "valor": cub["valor"], "ref": _r(cub["custo_ref"], 2)}}
     return {"obra": dados["obra"], "doc": dados["documento"], "gerado": dados["gerado_em"], "andares": andares, "resumoObra": obra,
-            "orc": orc3d, "hid": hid_out}
+            "orc": orc3d, "hid": hid_out, "ele": ele_out}
 
 
 WEB = Path(__file__).parent / "web"
@@ -524,7 +556,7 @@ def _pranchas(nome):
 
 
 # grupos da conferência -> disciplina (cor do material)
-DISC_CONF = {"Água fria": "var(--m-af)", "Esgoto": "var(--m-es)", "Geometria": "var(--m-cinza)", "Pavimentos repetidos": "var(--m-cinza)",
+DISC_CONF = {"Água fria": "var(--m-af)", "Esgoto": "var(--m-es)", "Elétrica": "var(--m-ele)", "Geometria": "var(--m-cinza)", "Pavimentos repetidos": "var(--m-cinza)",
              "Paginação": "var(--m-cinza)"}
 COR_GRUPO = [("estrutural", "var(--m-est)", "Alvenaria estrutural"), ("vedação", "var(--m-ved)", "Vedação"),
              ("graute", "var(--m-conc)", "Graute e armação"), ("armação", "var(--m-conc)", "Graute e armação"),
@@ -559,12 +591,16 @@ def painel(dados: dict, conf: list) -> dict:
     t_b4 = orc["total"] if orc else 0
     t_af = (af or {}).get("orcamento", {}).get("total", 0) if af else 0
     t_es = (es or {}).get("orcamento", {}).get("total", 0) if es else 0
-    total = t_b4 + t_af + t_es
+    ele = dados.get("eletrica")
+    o_el = (ele or {}).get("orcamento")
+    t_el = (o_el or {}).get("total", 0)
+    total = t_b4 + t_af + t_es + t_el
     ins = dados.get("insumos") or {}
     q_ins = lambda L: L[4] * L[6] * (1 + L[8])
     blocos = sum(q_ins(L) for L in ins.get("linhas", []) if L[1].startswith(("Bloco 14", "Bloco 9")))
     n_ok = sum(1 for c in conf_l if c[4])
-    kpis = [["Custo medido", "R$ " + _fmt(total), " e ".join(x for x, v in (("parte cinza", t_b4), ("hidráulica", t_af + t_es)) if v)],
+    feitas = [x for x, v in (("parte cinza", t_b4), ("hidráulica", t_af + t_es), ("elétrica", t_el)) if v]
+    kpis = [["Custo medido", "R$ " + _fmt(total), (", ".join(feitas[:-1]) + " e " + feitas[-1]) if len(feitas) > 1 else "".join(feitas)],
             ["Por m² construído", "R$ " + _fmt(total / area, 2) if area else "—", f"{_fmt(area, 2)} m²"]]
     cub = (orc or {}).get("cub")
     if cub:
@@ -585,7 +621,15 @@ def painel(dados: dict, conf: list) -> dict:
         n_cx = sum(1 for q in es.get("pecas_3d", []) if q["tipo"] == "caixa")
         disc.append({"n": "Esgoto", "cor": "var(--m-es)", "orc": t_es or None, "conf": conta("var(--m-es)"),
                      "lido": f"{_fmt(m)} m de tubo · {_fmt(sum(es['conexoes'].values()))} peças · {n_cx} caixas"})
-    disc += [{"n": "Incêndio", "cor": "var(--m-inc)", "na": True, "lido": "próximo"}, {"n": "Elétrica", "cor": "var(--m-ele)", "na": True, "lido": "sem projeto"}]
+    if ele:
+        n_pts = sum(1 for r in ele["plantas"] for p in r["pontos"] if p["tipo"] not in ("cx", "quadro", "entrada"))
+        m_el = sum(t[4] for t in ele["rede3d"]["trechos"])
+        n_qd = sum(1 for r in ele["plantas"] for p in r["pontos"] if p["tipo"] == "quadro" and (p.get("nome") or "").startswith("QD"))
+        disc.append({"n": "Elétrica", "cor": "var(--m-ele)", "orc": t_el or None, "conf": conta("var(--m-ele)"),
+                     "lido": f"{_fmt(n_pts)} pontos · {_fmt(m_el)} m de eletroduto · {n_qd} quadros"})
+    disc += [{"n": "Incêndio", "cor": "var(--m-inc)", "na": True, "lido": "próximo"}]
+    if not ele:
+        disc.append({"n": "Elétrica", "cor": "var(--m-ele)", "na": True, "lido": "sem projeto"})
     # pontos para os projetistas
     pend = [{"t": item, "d": res, "onde": g, "nivel": "w"} for g, _, item, res, ok in conf_l if not ok]
     if es:
@@ -637,6 +681,51 @@ def painel(dados: dict, conf: list) -> dict:
         tcx = sum(x["qtd"] for x in tab.get("caixas", []) if "Sifonada" in x["descricao"] or "Ralo" in x["descricao"])
         quant.append(["Esgoto", "var(--m-es)", [[f"Tubo PVC esgoto DN{k}", "m", round(q.get(k, 0), 2), tt.get(k), 2] for k in sorted(set(q) | set(tt))]
                       + [["Conexões", "un", sum(es["conexoes"].values()), tc or None, 0], ["Caixas sifonadas e ralos", "un", n_cx, tcx or None, 0]]])
+    if ele:
+        from .eletrica import POL, _contagens
+        cont, lst = Counter(), Counter()
+        for r in ele["plantas"]:
+            cont.update(_contagens(r))
+        for itens in ele["listas"].values():
+            for x in itens:
+                lst[(x["grupo"] or "", x["sub"] or "", x["item"])] += x["qtd"]
+        ql = lambda rx_g, rx_s=".*", rx_i=".*": sum(v for (g, s_, it), v in lst.items()
+                                                    if re.search(rx_g, g) and re.search(rx_s, s_) and re.search(rx_i, it))
+        tot_m = Counter()
+        for t in ele["rede3d"]["trechos"]:
+            tot_m[t[3]] += t[4]
+        bit = sorted({x["item"].rstrip('"') for v in ele["listas"].values() for x in v if (x["grupo"] or "").startswith("Eletroduto PVC flex")},
+                     key=lambda b: POL.get(b, 0))
+        linhas_el = [[f"Eletroduto {b}\" (modelo 3D: centro a centro das caixas)", "m", round(tot_m.get(b, 0), 2),
+                      round(ql("^Eletroduto PVC flex", ".*", "^" + re.escape(b) + '"'), 2), 1] for b in bit]
+        sec = Counter()
+        for (g, s_, it), v in lst.items():
+            m_ = re.match(r"^([\d.]+) mm²", it)
+            if g.startswith("Cabo") and m_:
+                sec[m_.group(1)] += v
+        linhas_el += [[f"Cabo {k.replace('.', ',')} mm² (lista do projetista)", "m", round(v, 2), None, 1]
+                      for k, v in sorted(sec.items(), key=lambda kv: float(kv[0]))]
+        pares = [("Tomada universal 2P+T 10 A (0,30 m)", "tomada universal", ("^Dispositivo El", "S/ placa", "universal")),
+                 ("Tomada 2P+T 10 A (1,10 m)", "tomada 10A", ("^Dispositivo El", "S/ placa", "hexagonal.*10A")),
+                 ("Tomada 2P+T 20 A", "tomada 20A", ("^Dispositivo El", "S/ placa", "20A")),
+                 ("Ponto do chuveiro (placa cega)", "placa cega", ("^Dispositivo El", ".*", "^Placa cega")),
+                 ("Interruptores", None, ("^Dispositivo El", "Placa 2x4", "^Interruptor")),
+                 ("Sensor de presença", "sensor", ("^Dispositivo de Comando",)),
+                 ("Luminária de teto", None, ("^Lumin", "^Luminária sobrepor")),
+                 ("Arandela", "arandela", ("^Lumin", "^Arandela")),
+                 ("Caixa 4×2\"", "caixa 4x2", ("Acessórios p/ eletrodutos", "^Caixa PVC$", '^4x2"')),
+                 ("Caixa octogonal 3×3\"", "caixa octogonal", ("Acessórios p/ eletrodutos", "octogonal")),
+                 ("Caixa de passagem 100×100×80", "caixa de passagem", ("^Caixa de passagem",)),
+                 ("Quadro de distribuição", "quadro de distribuição", ("^Quadro distrib",))]
+        for nome, chave, rx in pares:
+            if chave is None and nome.startswith("Interr"):
+                m_ = sum(v for k, v in cont.items() if k.startswith("interruptor"))
+            elif chave is None:
+                m_ = sum(v for k, v in cont.items() if k.startswith("luminária"))
+            else:
+                m_ = cont.get(chave, 0)
+            linhas_el.append([nome, "un", m_, ql(*rx), 0])
+        quant.append(["Elétrica", "var(--m-ele)", linhas_el])
     # orçamento por etapa (01 parte cinza, 02 instalações hidráulicas, ...)
     orc_out = None
     if orc:
@@ -667,8 +756,18 @@ def painel(dados: dict, conf: list) -> dict:
                                "cor": cor, "leg": nome, "itens": itens})
         if subs_h:
             etapas.append({"cod": "02", "n": "Instalações hidráulicas", "total": round(t_af + t_es, 2), "subs": subs_h})
-        etapas += [{"cod": f"{len(etapas) + 1:02d}", "n": "Instalações de incêndio", "st": "a ler"},
-                   {"cod": f"{len(etapas) + 2:02d}", "n": "Instalações elétricas", "st": "sem projeto"}]
+        if o_el:
+            cod = f"{len(etapas) + 1:02d}"
+            subs_e = []
+            for g in dict.fromkeys(L["grupo"] for L in o_el["linhas"]):
+                itens = [[L["item"], L["un"], round(L["qtd"], 3), round(L["preco"], 2), round(L["custo"], 2), str(L.get("sinapi") or "")]
+                         for L in o_el["linhas"] if L["grupo"] == g]
+                subs_e.append({"cod": f"{cod}.{len(subs_e) + 1}", "n": g, "total": round(sum(L["custo"] for L in o_el["linhas"] if L["grupo"] == g), 2),
+                               "cor": "var(--m-ele)", "leg": "Elétrica", "itens": itens})
+            etapas.append({"cod": cod, "n": "Instalações elétricas", "total": round(t_el, 2), "subs": subs_e})
+        etapas += [{"cod": f"{len(etapas) + 1:02d}", "n": "Instalações de incêndio", "st": "a ler"}]
+        if not o_el:
+            etapas.append({"cod": f"{len(etapas) + 1:02d}", "n": "Instalações elétricas", "st": "sem projeto" if not ele else "sem preço"})
         orc_out = {"total": round(total, 2), "porm2": round(total / area, 2) if area else 0, "etapas": etapas,
                    "ref": f"{sinapi} · custo direto",
                    "nota": "Custo direto (sem BDI). As etapas seguem a ordem da obra; abra cada linha para ver os itens, as quantidades e os preços SINAPI."}
@@ -678,7 +777,11 @@ def painel(dados: dict, conf: list) -> dict:
         docs.append(["Projeto de água fria", _pranchas(af.get("pdf")), af.get("pdf"), "lido", True])
     if es:
         docs.append(["Projeto sanitário", _pranchas(es.get("pdf")), es.get("pdf"), "lido", True])
-    docs += [["Projeto de incêndio", None, None, "próximo", False], ["Projeto elétrico", None, None, "não recebido", False]]
+    if ele:
+        docs.append(["Projeto elétrico", _pranchas(ele.get("pdf")), ele.get("pdf"), "lido", True])
+    docs += [["Projeto de incêndio", None, None, "próximo", False]]
+    if not ele:
+        docs.append(["Projeto elétrico", None, None, "não recebido", False])
     tem_pag = bool(dados.get("paginacao", {}).get("vista_detalhe"))
     plantas = [["Áreas", "conferencia.html"], ["Paredes", "paredes.html"]] + ([["Paginação", "paginacao.html"]] if tem_pag else [])
     arquivos = [["Planilha de medição e orçamento", "medicao.xlsx", "todas as tabelas, para abrir no Excel"],

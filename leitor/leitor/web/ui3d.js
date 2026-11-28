@@ -28,10 +28,24 @@ function resumoHid(){
    +dE.map(k=>`<tr><td class="k"><span class="dn"><i class="dot" style="background:${hx(COR_ES[k]||0xE4E1DA)}"></i>DN${k}</span></td><td>${nf(E.tot[k])} m${E.tab[k]!=null?` <span class="mut">· projetista ${nf(E.tab[k])} m</span>`:""}</td></tr>`).join("")+"</table>";
   if(E.orc)h+=`<div class="mut" style="margin-top:6px">Custo (SINAPI ${esc(E.orc.mes)}): <b>${brl(E.orc.total)}</b></div>`}
  return h}
+function resumoEle(){
+ const E=D.ele,ok=t=>S.andar<0||t[2]===D.andares[S.andar].nome,tot={},loc={};
+ E.trechos.forEach(t=>{if(!ok(t))return;tot[t[3]]=(tot[t[3]]||0)+t[4];loc[t[7]]=(loc[t[7]]||0)+t[4]});
+ const ord=Object.keys(tot).sort((a,b)=>E.diams.indexOf(a)-E.diams.indexOf(b)),soma=ord.reduce((s,k)=>s+tot[k],0);
+ const pts={};E.pontos.forEach(p=>{if(S.andar>=0&&p[0]!==D.andares[S.andar].nome)return;const k=p[1]==="quadro"&&String(p[7]||"").startsWith("QM")?"medicao":p[1];pts[k]=(pts[k]||0)+1});
+ const NL={laje:"na laje (teto)",parede:"descidas na parede",piso:"no piso (alimentadores)",prumada:"prumadas"};
+ let h=`<h3 style="margin-top:${hidOn()?14:0}px">Elétrica · ${S.andar<0?"prédio":esc(nomeAndar(S.andar))}</h3><div class="big">${nf(soma)} m de eletroduto</div>
+  <div class="mut">Modelo 3D: de centro a centro das caixas, com as descidas até a altura de cada ponto e as prumadas de caixa a caixa.</div><table>`
+  +ord.map(k=>`<tr><td class="k"><span class="dn"><i class="dot" style="background:${hx(["1.1/2","2","3","1.1/4","2.1/2","4"].includes(k)?COR_ELE_P:COR_ELE)}"></i>ø ${esc(k)}"</span></td><td>${nf(tot[k])} m${S.andar<0&&E.tab[k]!=null?` <span class="mut">· lista ${nf(E.tab[k])} m</span>`:""}</td></tr>`).join("")
+  +Object.entries(loc).map(([k,v])=>`<tr><td class="k">${esc(NL[k]||k)}</td><td>${nf(v)} m</td></tr>`).join("")+"</table>";
+ h+=`<h3 style="margin-top:14px">Pontos</h3><table>`+Object.entries(pts).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td class="k">${esc(NOME_ELE[k]||k)}</td><td>${nf(v,0)}</td></tr>`).join("")+"</table>";
+ if(S.andar<0&&E.orc)h+=`<h3 style="margin-top:14px">Custo da elétrica (SINAPI ${esc(E.orc.mes)})</h3><div class="big">${brl(E.orc.total)}</div><table>`
+  +Object.entries(E.orc.grupos).map(([g,v])=>`<tr><td class="k">${esc(g)}</td><td>${brl(v)}</td></tr>`).join("")+"</table><div class=\"mut\">Quantidades da lista do projetista.</div>";
+ return h}
 function resumo(){
  let h;
  if(S.modo==="custo"&&D.orc)h=resumoCusto();
- else if(S.modo==="inst"&&D.hid)h=resumoHid();
+ else if(S.modo==="inst")h=(hidOn()?resumoHid():"")+(eleOn()?resumoEle():"");
  else if(S.andar>=0){const A=D.andares[S.andar];h=`<h3>Resumo do pavimento</h3><div class="big">${esc(nomeAndar(S.andar))}</div><div class="mut">pé-direito ${nf(A.pd)} m · nível ${nf(A.z)} m</div><table>`+A.resumo.map(([k,v])=>`<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")+"</table>"}
  else h=`<h3>Prédio · principais insumos</h3><div class="big">${esc(APP.obra)}</div><div class="mut">Toque num pavimento, numa parede, num ambiente ou num tubo para ver os dados.</div><table>`+D.resumoObra.map(([k,v])=>`<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")+"</table>";
  el("resumo").innerHTML=h}
@@ -40,8 +54,10 @@ function legenda(){
  if(S.modo==="custo"){const [a,b]=ESCALA,u=S.metrica==="m2"?"/m²":"";
   h=`<div class="lgt">Custo da alvenaria e revestimentos</div><select class="lg-met" aria-label="Métrica do mapa">${[["parede","por parede"],["m2","por m² de parede"],["andar","por andar"]].map(([v,t])=>`<option value="${v}"${S.metrica===v?" selected":""}>${t}</option>`).join("")}</select>
    <div class="grad"></div><div class="esc"><span>${brl(a)}${u}</span><span>${brl(b)}${u}</span></div>${it("rgb("+SEMCUSTO.map(x=>Math.round(x*255)).join(",")+")","sem custo (concreto, muros, subsolo)")}`}
- else if(S.modo==="inst"){h=`<div class="lgt">Instalações</div>`+(temAF?it(COR_DN[25],"Água fria · PVC soldável marrom")+it(COR_CON,"Conexão (joelho, tê)")+it(0xC9A227,"Ponto de consumo (bucha de latão)")+it(COR_REG,"Registro"):"")
-   +(temES?it(COR_ES[100],"Esgoto · PVC branco")+it(0xF2F0EB,"Caixa sifonada e ralo"):"")+it(0xBDBAB4,"Paredes e lajes (contexto)")
+ else if(S.modo==="inst"){h=`<div class="lgt">Instalações</div>`+(temAF&&S.filt.af?it(COR_DN[25],"Água fria · PVC soldável marrom")+it(COR_CON,"Conexão (joelho, tê)")+it(0xC9A227,"Ponto de consumo (bucha de latão)")+it(COR_REG,"Registro"):"")
+   +(temES&&S.filt.es?it(COR_ES[100],"Esgoto · PVC branco")+it(0xF2F0EB,"Caixa sifonada e ralo"):"")
+   +(eleOn()?it(COR_ELE,"Eletroduto leve (3/4\" e 1\")")+it(COR_ELE_P,"Eletroduto pesado (alimentadores e prumadas)")+it(0xFFF1BF,"Luminária de teto")+it(0xF4F1EA,"Tomada, interruptor, sensor")+it(0x8A9099,"Quadro de distribuição")+it(0x9AA0A6,"Caixa de passagem"):"")
+   +it(0xBDBAB4,"Paredes e lajes (contexto)")
    +`<div class="lgn">Espessura do tubo proporcional ao diâmetro, engrossada para aparecer.</div>`}
  else if(S.modo==="ambientes")h=`<div class="lgt">Uso dos ambientes</div>`+Object.entries(COR_AMB).map(([k,c])=>it(c,NOME_AMB[k])).join("");
  else if(S.modo==="paginacao")h=`<div class="lgt">Blocos (família 39)</div>`+NOME_PECA.map(([t,c])=>it(c,t)).join("")
@@ -108,6 +124,22 @@ function selecionar(hit){
   <tr><td class="k">Patamar</td><td>${esc(pt)}</td></tr><tr><td class="k">Blondel (2e + p)</td><td>${nf(bl,1)} cm</td></tr>
   ${an.espelho_m?`<tr><td class="k">Anotado na planta</td><td>e = ${nf(an.espelho_m*100,0)} cm${an.piso_m?` · p = ${nf(an.piso_m*100,0)} cm`:""}${an.largura_m?` · L = ${nf(an.largura_m)} m`:""}</td></tr>`:""}</table>
   <div class="mut" style="margin-top:6px">Espelho calculado pelo desnível dos cortes ÷ nº de espelhos.${an.espelho_m&&Math.abs(an.espelho_m*E.N-E.dz)>0.03?` A planta anota ${nf(an.espelho_m*100,0)} cm (${E.N} × ${nf(an.espelho_m*100,0)} = ${nf(an.espelho_m*E.N)} m), diferente do corte: conferir com o arquiteto.`:""}${bl<63||bl>64?" NBR 9077 pede 63 a 64 cm na fórmula de Blondel e espelho de 16 a 18 cm: conferir.":""}</div>`;
+ }else if(u.tipo==="ele"||u.tipo==="elep"){const M=new THREE.Matrix4();o.getMatrixAt(hit.instanceId,M);
+  const hl=new THREE.Mesh(o.geometry,new THREE.MeshBasicMaterial({color:SEL,depthTest:false,transparent:true,opacity:0.9}));
+  const p=new THREE.Vector3(),q=new THREE.Quaternion(),e=new THREE.Vector3();M.decompose(p,q,e);
+  if(u.tipo==="ele")e.set(e.x*1.7,e.y,e.z*1.7);else e.multiplyScalar(1.3);hl.position.copy(p);hl.quaternion.copy(q);hl.scale.copy(e);hl.renderOrder=20;
+  o.parent.add(hl);S.sel={tipo:"hidsel",obj:o,hl};
+  if(u.tipo==="ele"){const [id,tp,pav,dm,L,oi,eixo,local]=D.ele.trechos[u.ids[hit.instanceId]];
+   const NT={ramal:"Eletroduto",curto:"Eletroduto entre caixas vizinhas",seta:"Ligação da prumada ao quadro",alimentador:"Alimentador",descida:"Descida na parede",prumada:"Prumada"};
+   const NL={laje:"na laje (teto)",parede:"na parede",piso:"no piso",prumada:"vertical entre andares"};
+   h=`<h3>Elétrica · ${esc(pav)}</h3><div class="big">${esc(NT[tp]||tp)} ø ${esc(dm)}"</div><div class="mut">${esc(id)} · ${eixo==="v"?"vertical":"horizontal"} · ${nf(L)} m · ${esc(NL[local]||local)}</div><table>
+   <tr><td class="k">Material</td><td>PVC corrugado ${["1.1/2","2","3"].includes(dm)?"pesado (laranja)":"leve (amarelo)"}, ${esc(dm)}"</td></tr>
+   <tr><td class="k">Fonte</td><td>${esc(D.ele.origens[oi])}</td></tr></table>`}
+  else{const c=u.arr[hit.instanceId],P=D.ele.pontos[c[4]],[pav,tp,sub,circ,qd,pot,cmd,nome,h_]=P;
+   h=`<h3>Elétrica · ${esc(pav)}</h3><div class="big">${esc(nome||NOME_ELE[tp==="quadro"&&String(nome||"").startsWith("QM")?"medicao":tp]||tp)}</div><div class="mut">${esc(sub||NOME_ELE[tp]||"")}</div><table>
+   ${qd?`<tr><td class="k">Quadro</td><td>${esc(qd)}</td></tr>`:""}${circ!=null?`<tr><td class="k">Circuito</td><td>${esc(circ)}</td></tr>`:""}
+   ${pot?`<tr><td class="k">Potência</td><td>${nf(pot,0)} W</td></tr>`:""}${cmd?`<tr><td class="k">Comando</td><td>${esc(cmd)}</td></tr>`:""}
+   <tr><td class="k">Altura do piso</td><td>${tp==="luminaria"?"no teto":nf(h_)+" m"}${tp==="cx"?" (premissa)":tp==="arandela"?" (premissa)":""}</td></tr></table>`}
  }else if(u.tipo==="hid"||u.tipo==="con"){const M=new THREE.Matrix4();o.getMatrixAt(hit.instanceId,M);
   const hl=new THREE.Mesh(o.geometry,new THREE.MeshBasicMaterial({color:SEL,depthTest:false,transparent:true,opacity:0.9}));
   const p=new THREE.Vector3(),q=new THREE.Quaternion(),e=new THREE.Vector3();M.decompose(p,q,e);

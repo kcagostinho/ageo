@@ -385,12 +385,14 @@ const CAMADAS=[
   ["a definir","Paredes a definir","#CCC6B9","térreo e subsolo"],["concreto","Pilares e concreto","var(--m-conc)","concreto armado"],["laje","Lajes","#BDB9AF","concreto armado"],["muro","Muros","#C6C0B5","divisa"],
   ["ext","Paredes de fachada",null,""],["int","Paredes internas",null,""]]},
  ...(D.hid?[{k:"hid",n:"Hidráulica",c:"var(--m-af)",subs:[...(temAF?[["af","Água fria","var(--m-af)","PVC soldável marrom"]]:[]),...(temES?[["es","Esgoto","var(--m-es)","PVC esgoto branco"]]:[])]}]:[]),
- {k:"inc",n:"Incêndio",c:"var(--m-inc)",na:"próximo"},{k:"ele",n:"Elétrica",c:"var(--m-ele)",na:"sem projeto"}];
+ ...(D.ele?[{k:"ele",n:"Elétrica",c:"var(--m-ele)",subs:[["eletroduto","Eletrodutos","var(--m-ele)","PVC corrugado: leve amarelo, pesado laranja"],["pontos","Pontos e quadros","#F4F1EA","tomadas, interruptores, luminárias, quadros"]]}]:[]),
+ {k:"inc",n:"Incêndio",c:"var(--m-inc)",na:"próximo"},...(D.ele?[]:[{k:"ele",n:"Elétrica",c:"var(--m-ele)",na:"sem projeto"}])];
 const CORES=[["mat","Material"],["amb","Uso dos ambientes"],...(temPag?[["blocos","Blocos (paginação)"]]:[]),...(D.orc?[["custo","Custo"]]:[])];
 const CAMS=[["iso","Iso"],["planta","Planta"],["cima","Cima"],["baixo","Baixo"],["esq","Esq."],["dir","Dir."]];
-const S={view:"m3d",andar:-1,cor:"mat",rot:false,filt:{esq:true,amb:true,esc:true,cob:true,"estrutural":true,"vedação":true,"a definir":true,concreto:true,laje:true,muro:false,ext:true,int:true,af:false,es:false,cintas:false,graute:true},
+const S={view:"m3d",andar:-1,cor:"mat",rot:false,filt:{esq:true,amb:true,esc:true,cob:true,"estrutural":true,"vedação":true,"a definir":true,concreto:true,laje:true,muro:false,ext:true,int:true,af:false,es:false,eletroduto:false,pontos:false,cintas:false,graute:true},
  explode:0,corte:false,alt:1.2,cortev:false,eixov:"x",posv:0.5,sel:null,metrica:"parede",modo:"paredes",labs:[]};
-const instOn=()=>!!(D.hid&&(S.filt.af||S.filt.es));
+const hidOn=()=>!!(D.hid&&(S.filt.af||S.filt.es)),eleOn=()=>!!(D.ele&&(S.filt.eletroduto||S.filt.pontos));
+const instOn=()=>hidOn()||eleOn();
 const modo=()=>instOn()?"inst":{mat:"paredes",amb:"ambientes",blocos:"paginacao",custo:"custo"}[S.cor];
 
 // ---------- casca: navegação, menus, folhas
@@ -487,6 +489,7 @@ function atualizar(){
    const fantasma=S.modo==="ambientes"||inst;
    me.material.transparent=abaixo||fantasma;me.material.opacity=abaixo?0.12:(inst?0.07:(fantasma?0.18:1));me.material.depthWrite=!(abaixo||fantasma)});
   F.hidM.forEach(me=>{const sy=me.userData.sys;me.visible=!!S.filt[sy?"es":"af"];me.material.transparent=abaixo;me.material.opacity=abaixo?0.25:1});
+  F.eleM.forEach(me=>{me.visible=!!S.filt[me.userData.sys];me.material.transparent=abaixo;me.material.opacity=abaixo?0.25:1});
   F.pecas.forEach(me=>{const u=me.userData;me.visible=blocos&&S.filt[u.tipoParede]!==false&&S.filt[u.fachada?"ext":"int"];
    const apagado=S.filt.cintas&&u.cat==="blo";me.material.transparent=abaixo||apagado;me.material.opacity=abaixo?0.12:(apagado?0.1:1);me.material.depthWrite=!(abaixo||apagado)});
   F.grauteM.forEach(me=>{me.visible=blocos&&S.filt.graute&&S.filt.estrutural});

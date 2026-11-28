@@ -14,6 +14,16 @@ const raioDN=dn=>Math.max((OD_DN[dn]||0.025)*0.8,0.014);
 const COR_ES={40:0xF0EEE9,50:0xEAE7E1,75:0xE4E1DA,100:0xDDDAD2,150:0xD6D2C9},OD_ES={40:0.040,50:0.050,75:0.075,100:0.110,150:0.160};
 const raioES=dn=>Math.max((OD_ES[dn]||0.1)*0.6,0.016);
 const COR_REG=0xC0392B,COR_CON=0x6B4027;
+// elétrica: eletroduto corrugado leve (amarelo) e pesado (laranja); diâmetro externo pela bitola, engrossado para aparecer
+const COR_ELE=0xE3B505,COR_ELE_P=0xD9822B,OD_ELE=[0.025,0.032,0.050,0.063,0.090,0.020,0.040,0.075,0.110];
+const raioEle=d=>Math.max((OD_ELE[d]||0.025)*0.7,0.012);
+const CUBO=new THREE.BoxGeometry(1,1,1),DISCO=new THREE.CylinderGeometry(0.5,0.5,1,20);
+const FORMA_ELE={tomada_baixa:{cor:0xF4F1EA,s:[0.09,0.07,0.09]},tomada_media:{cor:0xF4F1EA,s:[0.09,0.07,0.09]},tomada_alta:{cor:0xE9E2D2,s:[0.09,0.07,0.09]},
+ interruptor:{cor:0xFFFFFF,s:[0.09,0.09,0.09]},sensor:{cor:0xD8D3C7,s:[0.10,0.08,0.10]},arandela:{cor:0xF7E3A1,s:[0.16,0.12,0.16]},
+ luminaria:{cor:0xFFF1BF,s:[0.30,0.04,0.30],dy:-0.095,disco:true},quadro:{cor:0x8A9099,s:[0.28,0.42,0.28]},medicao:{cor:0x5F6670,s:[0.30,0.50,0.30]},
+ entrada:{cor:0x3A3F46,s:[0.30,0.60,0.30]},cx:{cor:0x9AA0A6,s:[0.12,0.12,0.12]},forca:{cor:0xE08A1E,s:[0.12,0.12,0.12]}};
+const NOME_ELE={tomada_baixa:"Tomada baixa",tomada_media:"Tomada média",tomada_alta:"Tomada alta / ponto 2,20 m",interruptor:"Interruptor",sensor:"Sensor de presença",
+ arandela:"Arandela",luminaria:"Luminária de teto",quadro:"Quadro de distribuição",medicao:"Caixa de medição",entrada:"Entrada de serviço",cx:"Caixa de passagem",forca:"Ponto de força"};
 const tipoPecaG=c=>{const d=((D.hid&&D.hid.cod[String(c).padStart(2,"0")])||"").toUpperCase();
  if(c>=70||d.startsWith("REGISTRO")||d.startsWith("HIDR"))return "reg";if(d.includes("BUCHA DE LAT"))return "pto";if(d.startsWith("BUCHA")||d.startsWith("LUVA"))return "luva";return "no"};
 const COR_PECA={0:0xD9D6CC,1:0xB4AE9E,2:0x8E7CC3,3:0xE08A1E,4:0xF2B24C,5:0x262626,6:0x8F8A80};
@@ -184,6 +194,20 @@ D.andares.forEach((A,ia)=>{
     M.compose(new THREE.Vector3(q[0],q[1]+0.004,q[2]),new THREE.Quaternion(),new THREE.Vector3(L*0.95,0.006,L*0.95));gr.setMatrixAt(i,M)});
    [cx,gr].forEach(m=>{m.instanceMatrix.needsUpdate=true;m.computeBoundingSphere();m.userData={sys:1};m.visible=false;g.add(m);hidM.push(m)})}
  }
+ // elétrica: eletrodutos (cilindros por bitola: leve amarelo, pesado laranja) e pontos (caixas, luminárias, quadros)
+ const eleM=[];
+ if(A.ele){const cil=new THREE.CylinderGeometry(1,1,1,8),M=new THREE.Matrix4(),Yv=new THREE.Vector3(0,1,0),porD={};
+  A.ele.t.forEach(r=>{(porD[r[6]]=porD[r[6]]||[]).push(r)});
+  Object.entries(porD).forEach(([d,arr])=>{d=+d;const rr=raioEle(d),me=new THREE.InstancedMesh(cil,mat({color:d>=2&&d<=4||d>=6?COR_ELE_P:COR_ELE}),arr.length),ids=new Int32Array(arr.length);
+   arr.forEach((r,i)=>{const a=new THREE.Vector3(r[0],r[1],r[2]),b=new THREE.Vector3(r[3],r[4],r[5]),dv=b.clone().sub(a),L=Math.max(dv.length(),0.004);
+    M.compose(a.clone().add(b).multiplyScalar(0.5),new THREE.Quaternion().setFromUnitVectors(Yv,dv.normalize()),new THREE.Vector3(rr,L,rr));me.setMatrixAt(i,M);ids[i]=r[7]});
+   me.instanceMatrix.needsUpdate=true;me.computeBoundingSphere();me.userData={tipo:"ele",ids,A,raio:rr,sys:"eletroduto"};me.visible=false;g.add(me);eleM.push(me);pick.push(me)});
+  const grupoE={};A.ele.p.forEach(p=>{(grupoE[p[3]]=grupoE[p[3]]||[]).push(p)});
+  Object.entries(grupoE).forEach(([k,arr])=>{const f=FORMA_ELE[D.ele.tipos[k]]||FORMA_ELE.tomada_baixa;
+   const me=new THREE.InstancedMesh(f.disco?DISCO:CUBO,mat({color:f.cor}),arr.length);
+   arr.forEach((p,i)=>{M.compose(new THREE.Vector3(p[0],p[1]+(f.dy||0),p[2]),new THREE.Quaternion(),new THREE.Vector3(...f.s));me.setMatrixAt(i,M)});
+   me.instanceMatrix.needsUpdate=true;me.computeBoundingSphere();me.userData={tipo:"elep",arr,A,sys:"pontos"};me.visible=false;g.add(me);eleM.push(me);pick.push(me)});
+ }
  // cobertura: telhados (fibrocimento i=10%), calhas, laje e reservatórios da caixa d'água
  if(A.cob){
   const listras=()=>{const cv=document.createElement("canvas");cv.width=64;cv.height=8;const c=cv.getContext("2d");c.fillStyle="#D3D0C8";c.fillRect(0,0,64,8);
@@ -201,6 +225,6 @@ D.andares.forEach((A,ia)=>{
    corp.position.set(x,A.cob.z_laje_res+A.cob.h_res/2,z);corp.userData.cobv=true;g.add(corp);
    const tampa=new THREE.Mesh(new THREE.SphereGeometry(r*0.94,28,8,0,Math.PI*2,0,Math.PI/2),mat({color:0x2F6DB5}));tampa.scale.y=0.22;tampa.position.set(x,A.cob.z_laje_res+A.cob.h_res,z);tampa.userData.cobv=true;g.add(tampa)});
  }
- andares.push({g,A,mats,ambs,paredes,pecas,grauteM,esq,escM,hidM,rotulos:null});
+ andares.push({g,A,mats,ambs,paredes,pecas,grauteM,esq,escM,hidM,eleM,rotulos:null});
 });
 

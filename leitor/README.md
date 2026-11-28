@@ -7,18 +7,18 @@ Plano completo em [`../docs/plano-leitor-de-projetos.md`](../docs/plano-leitor-d
 pip install -r requirements.txt
 python medir.py caminho/projeto.pdf --obra "Nome da obra" --saida obras/<obra>/saida
 # com o projeto de água fria (isométricos de prumada + plantas):
-python medir.py caminho/projeto.pdf --obra "Nome da obra" --saida obras/<obra>/saida --agua-fria caminho/agua_fria.pdf --esgoto caminho/sanitario.pdf
+python medir.py caminho/projeto.pdf --obra "Nome da obra" --saida obras/<obra>/saida --agua-fria caminho/agua_fria.pdf --esgoto caminho/sanitario.pdf --eletrica caminho/eletrico.pdf
 ```
 
 Saídas em `--saida`:
 
 | Arquivo | Conteúdo |
 |---|---|
-| `medicao.xlsx` | **Orçamento da alvenaria e dos revestimentos (B4, SINAPI)**, preços e custo por pavimento; insumos (B3); paginação; paredes; resumo por pavimento; **água fria** (tubos por DN × tabela do projetista, por coluna e andar, trecho a trecho com a parede onde passa, e como foi lido); **quantitativos por ambiente** (piso, teto, rodapé, parede bruta/líquida) e resumo por tipo de ambiente; ambientes (rótulo × medida); esquadrias; premissas (pé-direito editável); calibração |
+| `medicao.xlsx` | **Orçamento da alvenaria e dos revestimentos (B4, SINAPI)**, preços e custo por pavimento; insumos (B3); paginação; paredes; resumo por pavimento; **água fria** (tubos por DN × tabela do projetista, por coluna e andar, trecho a trecho com a parede onde passa, e como foi lido); **elétrica** (pontos e peças × lista de materiais por folha, pontos, eletrodutos, quadros de carga × planta, orçamento SINAPI); **quantitativos por ambiente** (piso, teto, rodapé, parede bruta/líquida) e resumo por tipo de ambiente; ambientes (rótulo × medida); esquadrias; premissas (pé-direito editável); calibração |
 | `conferencia.html` | Prancha com cada ambiente desenhado e colorido pelo status, para conferência visual |
 | `paredes.html` | Modelo de paredes: cada parede com eixo e espessura, colorida por tipo (estrutural, vedação…). Clique para reclassificar e baixe os ajustes |
 | `paginacao.html` | Paginação estimada: elevação de cada parede bloco a bloco, famílias 29 e 39, com comparação de peças e cortes |
-| `obra.html` | **Página da obra** (abre no computador e no celular; three.js embutido). Menu lateral no computador e abas embaixo no celular: **Visão geral** (custo medido, R$/m², CUB, situação de cada disciplina e pontos para os projetistas), **Modelo 3D**, **Plantas** (as páginas 2D abaixo, em abas), **Quantitativos** (modelo × tabela do projetista), **Orçamento** por etapa (parte cinza, instalações hidráulicas, incêndio, elétrica; até o item SINAPI), **Conferência**, **Documentos** e **Guia visual**. No 3D: pavimentos em coluna, disciplinas com olho (arquitetura, parte cinza, hidráulica), colorir por material, uso dos ambientes, blocos (paginação) ou custo, nomes dos ambientes com liga/desliga, cortes e ficha do elemento selecionado |
+| `obra.html` | **Página da obra** (abre no computador e no celular; three.js embutido). Menu lateral no computador e abas embaixo no celular: **Visão geral** (custo medido, R$/m², CUB, situação de cada disciplina e pontos para os projetistas), **Modelo 3D**, **Plantas** (as páginas 2D abaixo, em abas), **Quantitativos** (modelo × tabela do projetista), **Orçamento** por etapa (parte cinza, instalações hidráulicas, incêndio, elétrica; até o item SINAPI), **Conferência**, **Documentos** e **Guia visual**. No 3D: pavimentos em coluna, disciplinas com olho (arquitetura, parte cinza, hidráulica, elétrica), colorir por material, uso dos ambientes, blocos (paginação) ou custo, nomes dos ambientes com liga/desliga, cortes e ficha do elemento selecionado |
 | `obra.json` | Tudo acima com os polígonos, para as próximas fases (lacunas, EAP) |
 
 ## Como mede
@@ -144,7 +144,8 @@ Saídas em `--saida`:
       - bloco de concreto: estrutural mais escuro, vedação mais clara;
       - concreto armado;
       - PVC soldável marrom na água fria e PVC branco no esgoto;
-      - tubo vermelho de incêndio e eletroduto amarelo, para as próximas disciplinas.
+      - eletroduto corrugado amarelo (leve) e laranja (pesado) na elétrica;
+      - tubo vermelho de incêndio, para a próxima disciplina.
     - **Celular primeiro:**
       - 3D em tela cheia;
       - pavimentos numa coluna à direita;
@@ -152,6 +153,18 @@ Saídas em `--saida`:
       - ficha do elemento num cartão que abre por baixo;
       - tabelas viram lista.
     - **Nomes dos ambientes:** desligados por padrão. Quando ligados, só aparecem os que cabem sem sobrepor.
+23. **Instalações elétricas** (`eletrica.py`, `orcamento_ele.py`, `saida_eletrica.py`, opção `--eletrica`). Detalhes, resultados e pontos para o projetista em `../docs/plano-eletrica.md`.
+    - **Plantas:** o PDF não tem camadas; a leitura separa pela espessura do traço (0,84 eletroduto, 0,57 símbolos, 0,15 arquitetura).
+      - Pontos pela forma do símbolo (caixinha + haste + triângulo, círculo, meia-lua, placa) e pelos textos (circuito, potência, comando, rótulo).
+      - Eletrodutos cheios ligados ponta a ponta às caixas; alimentadores pontilhados lidos na ordem em que o PDF desenha os pontinhos, o que atravessa os cruzamentos sem trocar de linha.
+      - Bitola pelo rótulo ø, casado um a um com os eletrodutos (o rótulo fica a 8,3 pt, pendurado embaixo do traço).
+      - Registro sobre a arquitetura pelas paredes; planta com as prumadas fora do prumo é corrigida pelas próprias prumadas (subsolo: 3,08 m).
+    - **Prédio:** prumadas pelas caixas de passagem de mesmo nome; caminho de cada alimentador QM → caixa → QD; quadro de cada ponto pela rede (atravessando as prumadas para as áreas comuns).
+    - **Tabelas:** lista de materiais de cada folha e quadros de carga (circuitos, potências, seções, disjuntores).
+    - **3D:** eletroduto cheio na laje, pontilhado no piso, descida na parede até a altura de cada ponto (legenda), prumada de caixa a caixa. Nada fica solto (verificado na conferência).
+    - **Conferência:** pontos × lista item a item por folha, pontos × quadro de cargas circuito a circuito, comandos, alimentadores, apartamentos iguais, bitolas, eletroduto × lista (medido como o projetista), 3D sem peça solta.
+    - **Preço:** quantidades da lista do projetista; o modelo reparte eletroduto entre laje e parede e caixas/tomadas por altura. Abas "Elétrica", "Elétrica - pontos", "Elétrica - eletrodutos", "Elétrica - quadros" e "Elétrica (orçamento)".
+
 ## Limitações conhecidas
 
 - Depende de PDF vetorial com camadas no padrão do CAD (nomes AIA: `A-WALL`, `A-DOOR`…). PDF escaneado não funciona.

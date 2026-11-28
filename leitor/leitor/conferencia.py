@@ -218,6 +218,10 @@ def checar(dados: dict) -> list[tuple[str, str, str, bool]]:
     if es:
         from .esgoto import conferir as conferir_es
         out += conferir_es(es)
+    ele = dados.get("eletrica")
+    if ele:
+        from .eletrica import conferir as conferir_ele
+        out += conferir_ele(ele)
     return out
 
 

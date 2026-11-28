@@ -44,6 +44,9 @@ from leitor import hidraulica as HID           # noqa: E402
 from leitor import saida_hidraulica as SHID    # noqa: E402
 from leitor import orcamento_hid as OHID       # noqa: E402
 from leitor import esgoto as ESG               # noqa: E402
+from leitor import eletrica as ELE             # noqa: E402
+from leitor import orcamento_ele as OELE       # noqa: E402
+from leitor import saida_eletrica as SELE      # noqa: E402
 from dataclasses import replace as dc_replace  # noqa: E402
 from shapely.geometry import Polygon as _Poly   # noqa: E402
 from leitor.escala import calibrar             # noqa: E402
@@ -551,6 +554,7 @@ def planilha(dados: dict, destino: Path):
     SHID.abas(wb, dados, _cabecalho)
     SHID.abas_esgoto(wb, dados, _cabecalho)
     SHID.aba_orcamento(wb, dados, _cabecalho)
+    SELE.abas(wb, dados, _cabecalho)
     CONF.aba(wb, CONF.checar(dados), _cabecalho)
     ordem_abas = ["Leia-me", "Conferência", "Resumo", "Orçamento (B4)", "Insumos (B3)", "Preços (B4)", "Custo por pavimento (B4)", "Resumo quantitativos", "Resumo paredes", "Paginação", "Quantitativos", "Paredes",
                   "Paginação por parede", "Ambientes", "Esquadrias", "Instalações (B4)", "Água fria", "Esgoto", "Água fria por coluna",
@@ -714,6 +718,7 @@ def main():
     ap.add_argument("--sem-preco", action="store_true", help="não gerar o orçamento (B4)")
     ap.add_argument("--agua-fria", type=Path, help="PDF do projeto de água fria (isométricos de prumada e plantas)")
     ap.add_argument("--esgoto", type=Path, help="PDF do projeto de esgoto sanitário (isométricos e plantas)")
+    ap.add_argument("--eletrica", type=Path, help="PDF do projeto elétrico (plantas, quadros de carga e listas de materiais)")
     a = ap.parse_args()
     a.saida.mkdir(parents=True, exist_ok=True)
     dados = medir(a.pdf, a.saida, a.obra, a.familia)
@@ -736,6 +741,14 @@ def main():
             q[t["dn"]] += t["L"]
         print("esgoto: " + ", ".join(f"DN{k} {v:.2f} m" for k, v in sorted(q.items())) +
               f" · {sum(es['conexoes'].values())} conexões · {len(es['auditoria']['conflitos'])} conflitos com a alvenaria")
+    if a.eletrica:
+        print("elétrica:", a.eletrica.name)
+        el = ELE.ler_eletrica(a.eletrica, dados, log=print)
+        dados["eletrica"] = el
+        falhas = [c for c in el["conferencia"] if not c[3]]
+        print(f"elétrica: {sum(len(r['pontos']) for r in el['plantas'])} pontos, {len(el['rede3d']['trechos'])} eletrodutos no 3D "
+              f"({sum(t[4] for t in el['rede3d']['trechos']):.1f} m), {len(el['prumadas'])} prumadas, "
+              f"{len(el['alimentadores'])} alimentadores; conferência {len(el['conferencia']) - len(falhas)}/{len(el['conferencia'])}")
     if not a.sem_preco:
         try:
             orc = orcamento(dados, a.saida, a.sinapi, a.desonerado)
@@ -749,7 +762,13 @@ def main():
             af = (dados.get("hidraulica") or {}).get("agua_fria")
             es = (dados.get("hidraulica") or {}).get("esgoto")
             mm = orc["mes"]                           # "10/2026" -> "2026-10"
-            sin = SIN.carregar(f"{mm[3:]}-{mm[:2]}" if "/" in mm else mm, PASTA_PRECOS) if (af or es) else None
+            el = dados.get("eletrica")
+            sin = SIN.carregar(f"{mm[3:]}-{mm[:2]}" if "/" in mm else mm, PASTA_PRECOS) if (af or es or el) else None
+            if el:
+                el["orcamento"] = OELE.calcular(el, sin, {"desonerado": orc["premissas"]["desonerado"]}, OELE.quant_projetista(el))
+                rs = f"{el['orcamento']['total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                print(f"elétrica: SINAPI {orc['mes']}, custo direto R$ {rs}" +
+                      (f" (sem preço: {', '.join(el['orcamento']['nao_achou'])})" if el["orcamento"]["nao_achou"] else ""))
             if es:
                 es["orcamento"] = OHID.calcular_esgoto(es, sin, {"desonerado": orc["premissas"]["desonerado"]})
                 rs = f"{es['orcamento']['total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
