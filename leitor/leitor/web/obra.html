@@ -192,11 +192,14 @@ table.t{width:100%;border-collapse:collapse;background:var(--surf);border:1px so
 .regras{margin:0;padding-left:18px} .regras li{margin:4px 0}
 
 .mtop,.tabbar,.sheet,.scrim{display:none}
+.carregando{position:fixed;left:248px;right:0;top:50%;transform:translateY(-50%);text-align:center;color:var(--mut);font-size:14px;z-index:40;padding:0 24px}
+.carregando.erro{color:var(--accent-tx);font-weight:500}
 
 /* ================= CELULAR ================= */
 @media (max-width:900px){
   body{display:block}
   .side{display:none}
+  .carregando{left:0}
   .mtop{display:flex;position:fixed;top:0;left:0;right:0;height:var(--top);background:var(--brand);color:#fff;align-items:center;gap:12px;padding:0 14px;z-index:10}
   .mtop img{height:22px;width:auto;display:block}
   .mtop .ob{font-weight:600;font-size:14px;border-left:1px solid rgba(255,255,255,.3);padding-left:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -343,10 +346,13 @@ table.t{width:100%;border-collapse:collapse;background:var(--surf);border:1px so
   <div class="ctl"><span class="lbl">Afastar andares</span><input type="range" id="explode" min="0" max="4" step="0.1" value="0" aria-label="Afastar andares"></div>
 </div>
 
-<script>__THREE__</script>
-<script>
+<div class="carregando" id="carregando">Carregando o modelo…</div>
+<!-- three.js e o modelo 3D vão comprimidos (gzip, base64): a página fica com menos de 1 MB -->
+<script type="text/plain" id="zThree">__Z_THREE__</script>
+<script type="text/plain" id="zDados">__Z_DADOS__</script>
+<script type="text/plain" id="appJs">
 "use strict";
-const D=__DADOS__;
+const D=window.__D;
 const APP=__APP__;
 __CENA__
 // ======================================================================== interface
@@ -557,6 +563,21 @@ const v0=(location.hash||"").slice(1);
 go(VIEWS.some(v=>v[0]===v0)||v0==="guia"?v0:"m3d");
 redim();atualizar();enquadrar(false);
 (function loop(){requestAnimationFrame(loop);if(S.view!=="m3d"||document.hidden)return;controls.update();renderer.render(scene,camera)})();
+</script>
+<script>
+// abre o three.js e o modelo (comprimidos) e só então roda a página; erro aparece na tela (no celular não há console)
+(function(){
+ const aviso=t=>{const c=document.getElementById("carregando");if(c){c.textContent=t;c.classList.add("erro")}};
+ window.addEventListener("error",e=>aviso("Não foi possível abrir a página: "+(e.message||e)));
+ if(!("DecompressionStream" in window)){aviso("Este navegador é antigo para abrir o modelo 3D. Atualize o navegador (Safari 16.4 ou mais novo, Chrome, Edge ou Firefox atuais).");return}
+ const abre=async id=>{const b=atob(document.getElementById(id).textContent.trim()),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);
+  return new Response(new Blob([u]).stream().pipeThrough(new DecompressionStream("gzip"))).text()};
+ const roda=t=>{const x=document.createElement("script");x.textContent=t;document.body.appendChild(x)};
+ Promise.all([abre("zThree"),abre("zDados")]).then(([js,dados])=>{
+  roda(js);window.__D=JSON.parse(dados);roda(document.getElementById("appJs").textContent);
+  const c=document.getElementById("carregando");if(c&&!c.classList.contains("erro"))c.remove()})
+  .catch(e=>aviso("Não foi possível abrir a página: "+(e&&e.message||e)));
+})();
 </script>
 </body>
 </html>

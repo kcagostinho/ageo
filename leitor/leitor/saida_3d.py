@@ -694,12 +694,12 @@ def painel(dados: dict, conf: list) -> dict:
 def gerar(dados: dict, destino: Path, conf: list | None = None):
     """Página única da obra (obra.html): visão geral, 3D, plantas, quantitativos, orçamento, conferência e documentos."""
     import base64
+    import gzip
     if conf is None:
         from .conferencia import checar
         conf = checar(dados)
     modelo = montar(dados)
     app = painel(dados, conf)
-    js = VENDOR.read_text(encoding="utf-8").replace("</script", "<\\/script")
     dump = lambda o: json.dumps(o, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     logo = lambda f: "data:image/png;base64," + base64.b64encode((WEB / f).read_bytes()).decode()
     txt = (WEB / "obra.html").read_text(encoding="utf-8")
@@ -709,6 +709,10 @@ def gerar(dados: dict, destino: Path, conf: list | None = None):
            .replace("__TELAS__", (WEB / "telas.js").read_text(encoding="utf-8"))
            .replace("__LOGO_B__", logo("ageo-logo-branco.png")).replace("__LOGO_A__", logo("ageo-logo-azul.png"))
            .replace("__TITULO__", html.escape(f"{dados['obra']} · AGEO")))
-    txt = txt.replace("__THREE__", js)
-    txt = txt.replace("const D=__DADOS__;", "const D=" + dump(modelo) + ";").replace("const APP=__APP__;", "const APP=" + dump(app) + ";")
+    # three.js e o modelo 3D comprimidos (gzip + base64): a página cai de ~2,2 MB para menos de 1 MB e abre em
+    # visualizadores que mostram o código-fonte de arquivos grandes; o navegador descomprime (DecompressionStream)
+    z = lambda t: base64.b64encode(gzip.compress(t.encode("utf-8"), 9)).decode("ascii")
+    txt = txt.replace("__Z_THREE__", z(VENDOR.read_text(encoding="utf-8")))
+    txt = txt.replace("__Z_DADOS__", z(json.dumps(modelo, ensure_ascii=False, separators=(",", ":"))))
+    txt = txt.replace("const APP=__APP__;", "const APP=" + dump(app) + ";")
     destino.write_text(txt, encoding="utf-8")
