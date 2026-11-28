@@ -221,7 +221,7 @@ def checar(dados: dict) -> list[tuple[str, str, str, bool]]:
     ele = dados.get("eletrica")
     if ele:
         from .eletrica import conferir as conferir_ele
-        out += conferir_ele(ele)
+        out += conferir_ele(ele, dados)
     return out
 
 

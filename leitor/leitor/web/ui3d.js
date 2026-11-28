@@ -129,11 +129,12 @@ function selecionar(hit){
   const p=new THREE.Vector3(),q=new THREE.Quaternion(),e=new THREE.Vector3();M.decompose(p,q,e);
   if(u.tipo==="ele")e.set(e.x*1.7,e.y,e.z*1.7);else e.multiplyScalar(1.3);hl.position.copy(p);hl.quaternion.copy(q);hl.scale.copy(e);hl.renderOrder=20;
   o.parent.add(hl);S.sel={tipo:"hidsel",obj:o,hl};
-  if(u.tipo==="ele"){const [id,tp,pav,dm,L,oi,eixo,local]=D.ele.trechos[u.ids[hit.instanceId]];
+  if(u.tipo==="ele"){const [id,tp,pav,dm,L,oi,eixo,local,fios]=D.ele.trechos[u.ids[hit.instanceId]];
    const NT={ramal:"Eletroduto",curto:"Eletroduto entre caixas vizinhas",seta:"Ligação da prumada ao quadro",alimentador:"Alimentador",descida:"Descida na parede",prumada:"Prumada"};
    const NL={laje:"na laje (teto)",parede:"na parede",piso:"no piso",prumada:"vertical entre andares"};
    h=`<h3>Elétrica · ${esc(pav)}</h3><div class="big">${esc(NT[tp]||tp)} ø ${esc(dm)}"</div><div class="mut">${esc(id)} · ${eixo==="v"?"vertical":"horizontal"} · ${nf(L)} m · ${esc(NL[local]||local)}</div><table>
    <tr><td class="k">Material</td><td>PVC corrugado ${["1.1/2","2","3"].includes(dm)?"pesado (laranja)":"leve (amarelo)"}, ${esc(dm)}"</td></tr>
+   ${fios?`<tr><td class="k">Fiação (desenho)</td><td>${esc(fios)}</td></tr>`:""}
    <tr><td class="k">Fonte</td><td>${esc(D.ele.origens[oi])}</td></tr></table>`}
   else{const c=u.arr[hit.instanceId],P=D.ele.pontos[c[4]],[pav,tp,sub,circ,qd,pot,cmd,nome,h_]=P;
    h=`<h3>Elétrica · ${esc(pav)}</h3><div class="big">${esc(nome||NOME_ELE[tp==="quadro"&&String(nome||"").startsWith("QM")?"medicao":tp]||tp)}</div><div class="mut">${esc(sub||NOME_ELE[tp]||"")}</div><table>

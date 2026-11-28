@@ -162,7 +162,16 @@ Saídas em `--saida`:
     - **Prédio:** prumadas pelas caixas de passagem de mesmo nome; caminho de cada alimentador QM → caixa → QD; quadro de cada ponto pela rede (atravessando as prumadas para as áreas comuns).
     - **Tabelas:** lista de materiais de cada folha e quadros de carga (circuitos, potências, seções, disjuntores).
     - **3D:** eletroduto cheio na laje, pontilhado no piso, descida na parede até a altura de cada ponto (legenda), prumada de caixa a caixa. Nada fica solto (verificado na conferência).
-    - **Conferência:** pontos × lista item a item por folha, pontos × quadro de cargas circuito a circuito, comandos, alimentadores, apartamentos iguais, bitolas, eletroduto × lista (medido como o projetista), 3D sem peça solta.
+    - **Fiação:** os risquinhos de cada eletroduto (fase liso, neutro com gancho, terra com T, retorno curto) dão os metros de cabo por seção e função, conferidos com a lista.
+    - **Conferência:**
+      - pontos × lista item a item por folha;
+      - pontos × quadro de cargas circuito a circuito;
+      - comandos, alimentadores, apartamentos iguais, bitolas;
+      - eletroduto e cabo × lista;
+      - NBR 5410 nos circuitos terminais;
+      - disjuntores das tabelas × lista;
+      - cada ponto no cômodo do seu circuito e encostado numa parede, fora dos pontos de graute;
+      - 3D sem peça solta.
     - **Preço:** quantidades da lista do projetista; o modelo reparte eletroduto entre laje e parede e caixas/tomadas por altura. Abas "Elétrica", "Elétrica - pontos", "Elétrica - eletrodutos", "Elétrica - quadros" e "Elétrica (orçamento)".
 
 ## Limitações conhecidas

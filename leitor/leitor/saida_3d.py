@@ -239,7 +239,7 @@ def montar(dados: dict) -> dict:
                 if (x["grupo"] or "").startswith("Eletroduto"):
                     tab[x["item"].rstrip('"').strip()] += x["qtd"]
         o = ele.get("orcamento")
-        ele_out = {"trechos": [[t[0], t[1], t[2], t[3], t[4], oi[t[5]], t[6], t[7]] for t in r3["trechos"]], "origens": origens,
+        ele_out = {"trechos": [[t[0], t[1], t[2], t[3], t[4], oi[t[5]], t[6], t[7], t[9] if len(t) > 9 else ""] for t in r3["trechos"]], "origens": origens,
                    "pontos": r3["pontos"], "diams": r3["diams"], "tipos": r3["tipos"], "pdf": ele.get("pdf"),
                    "tot": {k: _r(v, 2) for k, v in tot.items()}, "tab": {k: _r(v, 2) for k, v in tab.items()},
                    "orc": o and {"total": o["total"], "grupos": o["grupos"], "mes": o["mes"]}}
@@ -702,9 +702,16 @@ def painel(dados: dict, conf: list) -> dict:
         for (g, s_, it), v in lst.items():
             m_ = re.match(r"^([\d.]+) mm²", it)
             if g.startswith("Cabo") and m_:
-                sec[m_.group(1)] += v
-        linhas_el += [[f"Cabo {k.replace('.', ',')} mm² (lista do projetista)", "m", round(v, 2), None, 1]
-                      for k, v in sorted(sec.items(), key=lambda kv: float(kv[0]))]
+                sec[float(m_.group(1))] += v
+        from .eletrica import cabos
+        cb = cabos(ele)
+        cm = Counter()
+        for (pav, sc, f), v in cb["andar"].items():
+            cm[sc] += v
+        for (sc, f), v in cb["prumadas"].items():
+            cm[sc] += v
+        linhas_el += [[f"Cabo {str(k).replace('.0', '').replace('.', ',')} mm² (modelo: fiação desenhada × eletroduto)", "m", round(cm.get(k, 0), 2),
+                       round(v, 2), 1] for k, v in sorted(sec.items())]
         pares = [("Tomada universal 2P+T 10 A (0,30 m)", "tomada universal", ("^Dispositivo El", "S/ placa", "universal")),
                  ("Tomada 2P+T 10 A (1,10 m)", "tomada 10A", ("^Dispositivo El", "S/ placa", "hexagonal.*10A")),
                  ("Tomada 2P+T 20 A", "tomada 20A", ("^Dispositivo El", "S/ placa", "20A")),

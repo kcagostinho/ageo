@@ -5,7 +5,7 @@
 > - quantitativo conferido com a lista de materiais e com os quadros de carga do projetista;
 > - preço SINAPI.
 
-Atualizado em 28/11/2026.
+Atualizado em 28/11/2026 (com a auditoria da seção 9).
 
 ## 1. O que o PDF tem
 
@@ -140,7 +140,74 @@ Atualizado em 28/11/2026.
 5. **Lâmpadas incandescentes** especificadas na lista. Trocar por LED equivalente (orçado assim).
 6. **Alturas que faltam na legenda:** arandela e caixas de passagem das prumadas.
 
-## 8. Arquivos
+## 8. Fiação desenhada (cabos)
+
+Os eletrodutos trazem a fiação desenhada: um risquinho por condutor, cruzando o eletroduto ou a linha de base de uma chamada que aponta para ele.
+
+| Risquinho | Condutor |
+|---|---|
+| liso comprido (16,7 pt) | fase |
+| comprido com gancho na ponta | neutro |
+| curto (8,4 pt) com T na ponta | terra |
+| curto sem o T | retorno (com a letra do comando) |
+
+- **Seção:** a do circuito escrito ao lado, tirada do quadro de cargas. Terra pela tabela 58 da NBR 5410. Retorno pela seção do circuito de iluminação. Sem circuito, vale o número pequeno escrito (2.5, 4, 16, 25).
+- **Comprimento de cada condutor:** o do eletroduto, medido como o projetista (desenho + descida do forro ao topo da caixa).
+- **Prumadas** (não desenhadas em planta): cada alimentador sobe 2 fases + neutro + terra; cada circuito do QD22 sobe até o andar mais distante onde tem ponto.
+- **Eletroduto anotado duas vezes** (uma em cada ponta): os condutores contam uma vez.
+
+| Cabo | Modelo | Lista | Diferença |
+|---|---|---|---|
+| 1,5 mm² | 2.758 m | 3.237 m | −14,8% |
+| 2,5 mm² | 6.194 m | 6.157 m | +0,6% |
+| 4 mm² | 1.324 m | 1.507 m | −12,2% |
+| 16 mm² | 1.158 m | 1.078 m | +7,5% |
+| 25 mm² | 1.970 m | 1.900 m | +3,6% |
+
+- Nos andares-tipo, o 2,5 mm² fecha em 0,5% por função (fase, neutro, terra).
+- As seções que pesam no preço (2,5 e 25 mm²) batem.
+- Em dinheiro, o modelo fica cerca de R$ 2,2 mil acima da lista em R$ 180 mil de cabo (1,3%).
+- **Por que as outras seções não fecham:**
+  - **1,5 mm²:** 37 eletrodutos estão sem a fiação desenhada, quase todos de iluminação (um por apartamento, de luminária a luminária).
+  - **4 mm²:** os circuitos das áreas comuns sobem pelas prumadas, e o modelo conta o trajeto mínimo.
+  - **16 mm²:** o feixe de 21 linhas da AL1 aos medidores está encostado, e alguns risquinhos ficam ambíguos.
+- O orçamento continua usando a lista.
+
+## 9. Auditoria (28/11/2026)
+
+Cada item virou verificação na conferência, refeita a cada leitura.
+
+**Erros da implementação, corrigidos:**
+1. **Fiação não lida.** Os cabos (R$ 180 mil, 56% da elétrica) entravam só pela lista, sem conferência. Agora são lidos do desenho (seção 8).
+2. **Abas da planilha:** a ordenação descartava as abas da elétrica (corrigido antes desta auditoria).
+3. **Quadros de carga relidos do `obra.json`:** as potências viravam texto e a conferência dava divergência falsa (corrigido antes desta auditoria).
+4. **Alturas e premissas** revisadas: sem mudança.
+
+**Conferido e certo:**
+- Pontos e peças × lista, item a item, em todas as folhas.
+- Pontos por circuito × quadro de cargas (22 de 22).
+- Cada ponto no cômodo do seu circuito (440 pontos).
+- Todo cômodo dos apartamentos com ponto de luz (120).
+- Comandos.
+- Os 162 circuitos dos QDs atendem a NBR 5410: corrente ≤ disjuntor ≤ capacidade do cabo, seção mínima, queda de tensão parcial ≤ 4% e total ≤ 5%.
+- Disjuntores dos QDs × lista em todos os andares.
+- Orçamento: todo item da lista tem destino (preço, nota ou dentro de outra composição).
+- 3D sem peça solta.
+
+**Pontos novos para o projetista (o desenho está assim):**
+1. **Interruptor da luz da cozinha (comando h/i), em todos os 20 apartamentos,** ficava na parede com porta que a alteração "cozinha aberta" removeu. No modelo foi levado para a parede mais perto (premissa, marcada); o projetista precisa reposicionar.
+2. **Disjuntores dos medidores:**
+   - O quadro de cargas do AL1 dá 63 A na saída para cada medidor, e os quadros QM1–QM22 dão 70 A depois do medidor. O disjuntor de cima é menor que o de baixo, sem seletividade.
+   - A lista do térreo tem só os de 63 A: faltam 21 bipolares e 1 unipolar de 70 A, ou sobra um dos dois níveis.
+   - Os dois quadros usam bases diferentes: o AL1 a demanda da concessionária (≈ 6 A por medidor), o QM a carga instalada (64 A).
+3. **30 caixas a menos de 10 cm de um ponto de graute** da alvenaria estrutural: encontros de paredes e laterais de vãos, quase sempre interruptor junto ao batente e as caixas de passagem CX1/CX3. O furo do bloco é grauteado: deslocar a caixa ou passar o eletroduto antes do graute.
+4. **Elevador em 127 V monofásico (F+N+T, 5,5 kW, 54,6 A, disjuntor de 63 A):** conferir com o fabricante, que costuma pedir trifásico. A lista tem 1 caixa de medição trifásica que não aparece na planta.
+5. **Sensor de presença do subsolo a 1,1 m de qualquer parede:** provavelmente em pilar ou no teto, que o modelo não tem.
+6. **Eletroduto da iluminação da escada (circuito 3 do QD22)** passa 0,5 m sob a projeção da escada em cada andar: fica embutido na rampa de cima; conferir.
+
+**Fora do projeto recebido** (outros projetos): SPDA (para-raios), telefonia/interfone/TV, CFTV, iluminação de emergência (vem no projeto de incêndio) e iluminação de fachada. Não há bomba: a água vai direto ao reservatório superior, coerente com a hidráulica.
+
+## 10. Arquivos
 
 - `leitor/leitor/eletrica.py`: leitura (plantas, prédio, tabelas, 3D, conferência).
 - `leitor/leitor/orcamento_ele.py`: preço SINAPI.
